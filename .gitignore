@@ -1,0 +1,25 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# urlscan-submit specific
+api_key.txt
+.urlscan-config.json
+.urlscan-config.yaml
+.urlscan-config.yml
+results.csv
+results.json
+out.csv
+out.json

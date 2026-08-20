@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "urlscan-submitter"
+version = "1.2.0"
+authors = [
+  { name="Security Analyst", email="analyst@example.com" },
+]
+description = "High-performance Python CLI tool for automated urlscan.io domain submissions and malware analysis."
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Environment :: Console",
+]
+dependencies = [
+    "tqdm>=4.65.0",
+    "PyYAML>=6.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "coverage>=6.5.0"
+]
+
+[project.scripts]
+urlscan-submit = "urlscan_submit:main"
