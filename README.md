@@ -24,7 +24,7 @@ We recommend using a Python virtual environment to keep dependencies isolated:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/deadjdona/urlscan-submitter.git
+git clone https://github.com/deadjdona/urlscan.io-submitter.git
 cd urlscan-submitter
 
 # 2. Create and activate a virtual environment
