@@ -213,5 +213,24 @@ class TestUrlscanSubmit(unittest.TestCase):
         
         self.assertIsNone(result)
 
+    def test_simple_progress_bar_render_and_update(self):
+        pbar = urlscan_submit.SimpleProgressBar(total=10, desc="Test Progress", width=20)
+        self.assertEqual(pbar.total, 10)
+        self.assertEqual(pbar.n, 0)
+        
+        # Test update and set_postfix
+        pbar.set_postfix({"ok": 1, "err": 0}, refresh=False)
+        pbar.update(2)
+        self.assertEqual(pbar.n, 2)
+        self.assertEqual(pbar.postfix.get("ok"), 1)
+        pbar.close()
+
+    def test_create_progress_bar(self):
+        pbar = urlscan_submit.create_progress_bar(total=5, desc="Test")
+        self.assertIsNotNone(pbar)
+        if hasattr(pbar, "close"):
+            pbar.close()
+
 if __name__ == '__main__':
     unittest.main()
+

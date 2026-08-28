@@ -30,18 +30,65 @@ class Colors:
     BOLD: str = '\033[1m'
     UNDERLINE: str = '\033[4m'
 
-# Override standard print to be compatible with tqdm progress bars
+# --- PROGRESS BAR SUPPORT ---
+class SimpleProgressBar:
+    """Lightweight fallback ASCII progress bar used when tqdm is not installed."""
+    def __init__(self, total: int, desc: str = "Scan Submissions", width: int = 30):
+        self.total = total
+        self.desc = desc
+        self.width = width
+        self.n = 0
+        self.postfix: Dict[str, Any] = {}
+        self.start_time = time.time()
+
+    def update(self, n: int = 1) -> None:
+        self.n += n
+        self.render()
+
+    def set_postfix(self, postfix_dict: Dict[str, Any], refresh: bool = True) -> None:
+        self.postfix = postfix_dict
+        if refresh:
+            self.render()
+
+    def render(self) -> None:
+        pct = (self.n / self.total) if self.total > 0 else 1.0
+        filled = int(self.width * pct)
+        bar = "=" * filled + (">" if filled < self.width else "")
+        bar = bar.ljust(self.width, " ")
+        postfix_parts = [f"{k}: {v}" for k, v in self.postfix.items()]
+        postfix_str = f" [{', '.join(postfix_parts)}]" if postfix_parts else ""
+        elapsed = time.time() - self.start_time
+        rate = (self.n / elapsed) if elapsed > 0 else 0.0
+        line = f"\r{self.desc}: [{bar}] {pct*100:5.1f}% ({self.n}/{self.total}) [{elapsed:.1f}s, {rate:.2f} url/s]{postfix_str}"
+        import builtins
+        builtins.print(line, end="", flush=True)
+
+    def close(self) -> None:
+        import builtins
+        builtins.print()
+
+def create_progress_bar(total: int, desc: str = "Scan Submissions"):
+    """Creates a tqdm progress bar if available, or falls back to SimpleProgressBar."""
+    if tqdm:
+        return tqdm(
+            total=total,
+            desc=desc,
+            unit="url",
+            dynamic_ncols=True,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]"
+        )
+    return SimpleProgressBar(total=total, desc=desc)
+
+# Override standard print to be compatible with tqdm and fallback progress bars
 # This ensures that debug output and reports don't break the progress bar visual
-def _tqdm_print(*args: Any, **kwargs: Any) -> None:
+def _safe_print(*args: Any, **kwargs: Any) -> None:
     if tqdm:
         tqdm.write(kwargs.get("sep", " ").join(map(str, args)), end=kwargs.get("end", "\n"))
     else:
-        # Fallback to standard print if we somehow bypass the exit
         import builtins
         builtins.print(*args, **kwargs)
 
-if tqdm:
-    print = _tqdm_print
+print = _safe_print
 
 # --- RECONNAISSANCE DICTIONARIES ---
 # These lists are used when the user provides an exploratory flag (-x, -xx, -xxx).
@@ -470,11 +517,6 @@ def main() -> None:
     Main entry point for the CLI tool. Parses arguments, generates the Cartesian 
     product of all requested domains, and dispatches them to urlscan.io.
     """
-    if tqdm is None:
-        import builtins
-        builtins.print("Error: The 'tqdm' library is required. Please install it with: pip install tqdm")
-        exit(1)
-
     parser = argparse.ArgumentParser(description="Automate urlscan.io domain submissions for malware analysis.")
     
     parser.add_argument("-c", "--config", "-⚙", help="Path to JSON/YAML config file (e.g., .urlscan-config.json)")
@@ -678,8 +720,13 @@ def main() -> None:
     tags_list = list(dict.fromkeys(tags_list))[:10]
 
     all_reports = []
+    scan_metrics = {
+        "success": 0,
+        "failed": 0,
+        "reports": 0
+    }
     
-    def process_url(url):
+    def process_url(url: str):
         print(f"{Colors.OKCYAN}[*] Submitting {url} ...{Colors.ENDC}")
         result = submit_to_urlscan(
             url, 
@@ -692,8 +739,10 @@ def main() -> None:
             country=args.country
         )
         report_data = None
+        is_success = False
         
         if result and 'uuid' in result:
+            is_success = True
             uuid = result['uuid']
             print(f"{Colors.OKGREEN}[+] Success! Scan UUID: {uuid}{Colors.ENDC}")
             print(f"{Colors.OKGREEN}[+] Result Link: {Colors.UNDERLINE}https://urlscan.io/result/{uuid}/{Colors.ENDC}")
@@ -706,20 +755,47 @@ def main() -> None:
         # The delay acts as our floor padding to avoid aggressive 429 bursts on our side.
         # It guarantees we always wait at least 2.0s, unless the user provided a longer --delay.
         time.sleep(max(2.0, args.delay))
-        return report_data
+        return is_success, report_data
         
     import concurrent.futures
-    # Launch the ThreadPoolExecutor to handle network I/O bounds in parallel.
-    # The GIL isn't a bottleneck here because the tasks are almost entirely waiting on urlscan.io responses.
+    pbar = create_progress_bar(total=len(urls_to_scan), desc="Submitting URLs")
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-        # Spin up all futures. The `process_url` will inherently rate-limit itself based on the backoff logic.
         futures = [executor.submit(process_url, url) for url in urls_to_scan]
         
-        # We hook the futures into a tqdm progress bar wrapper to visualize execution as they complete.
-        for future in tqdm(concurrent.futures.as_completed(futures), total=len(urls_to_scan), desc="Scan Progress", unit="url", dynamic_ncols=True):
-            res = future.result()
+        for future in concurrent.futures.as_completed(futures):
+            is_success, res = future.result()
+            if is_success:
+                scan_metrics["success"] += 1
+            else:
+                scan_metrics["failed"] += 1
+                
             if res and (args.export_csv or args.json_log):
                 all_reports.append(res)
+                scan_metrics["reports"] += 1
+                
+            postfix = {
+                "ok": scan_metrics["success"],
+                "err": scan_metrics["failed"]
+            }
+            if args.report or args.export_csv or args.json_log:
+                postfix["reports"] = scan_metrics["reports"]
+                
+            pbar.set_postfix(postfix, refresh=True)
+            pbar.update(1)
+
+    pbar.close()
+
+    total_scanned = len(urls_to_scan)
+    print(f"\n{Colors.HEADER}============================================={Colors.ENDC}")
+    print(f"{Colors.BOLD} 🏁 SCAN SUBMISSIONS COMPLETED{Colors.ENDC}")
+    print(f"{Colors.HEADER}============================================={Colors.ENDC}")
+    print(f" Total Targets      : {total_scanned}")
+    print(f" Successful (UUID)  : {Colors.OKGREEN}{scan_metrics['success']}{Colors.ENDC} ({scan_metrics['success']/total_scanned*100:.1f}%)" if total_scanned else " Successful (UUID): 0")
+    print(f" Failed Submissions : {Colors.FAIL if scan_metrics['failed'] else Colors.OKGREEN}{scan_metrics['failed']}{Colors.ENDC} ({scan_metrics['failed']/total_scanned*100:.1f}%)" if total_scanned else " Failed Submissions: 0")
+    if args.report or args.export_csv or args.json_log:
+        print(f" Reports Retrieved  : {scan_metrics['reports']}")
+    print(f"{Colors.HEADER}============================================={Colors.ENDC}\n")
 
     if args.export_csv and all_reports:
         export_to_csv(all_reports, args.export_csv)
