@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../scans"
+		},
+		{
+			"name": "urlscan.io-submitter",
+			"path": "."
+		}
+	],
+	"settings": {}
+}
