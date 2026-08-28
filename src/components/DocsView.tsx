@@ -47,11 +47,11 @@ export default function DocsView() {
         <div className="lg:col-span-5 space-y-8">
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">🛠️ CLI Installation</h2>
+              <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">🛠️ Full Setup (CLI + Web UI)</h2>
               <button
                 onClick={() =>
                   handleCopy(
-                    'git clone https://github.com/yourusername/urlscan-submitter.git\ncd urlscan-submitter\npython -m venv venv\nsource venv/bin/activate\npip install .\nexport URLSCAN_API_KEY="your-api-key"',
+                    'git clone https://github.com/deadjdona/urlscan.io-submitter.git\ncd urlscan.io-submitter\npython -m venv venv\nsource venv/bin/activate\npip install .\nexport URLSCAN_API_KEY="your-api-key"\nnpm install\nnpm run dev',
                     'install'
                   )
                 }
@@ -63,23 +63,27 @@ export default function DocsView() {
             </div>
             <div className="bg-[#0D1117] rounded-xl p-5 text-[13px] font-mono text-gray-300 shadow-inner space-y-5 overflow-x-auto border border-gray-800">
               <div>
-                <p className="text-gray-500 mb-1"># 1. Clone repository and setup virtual env</p>
-                <p className="mb-1"><span className="text-blue-400">git</span> clone https://github.com/yourusername/urlscan-submitter.git</p>
-                <p className="mb-1"><span className="text-blue-400">cd</span> urlscan-submitter</p>
-                <p className="mb-1"><span className="text-blue-400">python</span> -m venv venv</p>
-                <p><span className="text-blue-400">source</span> venv/bin/activate</p>
+                <p className="text-gray-500 mb-1"># 1. Clone repository</p>
+                <p className="mb-1"><span className="text-blue-400">git</span> clone https://github.com/deadjdona/urlscan.io-submitter.git</p>
+                <p className="mb-1"><span className="text-blue-400">cd</span> urlscan.io-submitter</p>
               </div>
 
               <div>
-                <p className="text-gray-500 mb-1"># 2. Install the tool globally in your env</p>
+                <p className="text-gray-500 mb-1"># 2. Setup Python CLI Tool</p>
+                <p className="mb-1"><span className="text-blue-400">python</span> -m venv venv</p>
+                <p className="mb-1"><span className="text-blue-400">source</span> venv/bin/activate</p>
                 <p><span className="text-blue-400">pip</span> install .</p>
               </div>
 
               <div>
-                <p className="text-gray-500 mb-1"># 3. Configure your urlscan.io API key</p>
+                <p className="text-gray-500 mb-1"># 3. Setup Web Dashboard & Node.js Server</p>
+                <p className="mb-1"><span className="text-blue-400">npm</span> install</p>
+                <p><span className="text-blue-400">npm</span> run dev</p>
+              </div>
+
+              <div>
+                <p className="text-gray-500 mb-1"># 4. Configure your API key</p>
                 <p className="mb-1"><span className="text-blue-400">export</span> URLSCAN_API_KEY="your-api-key"</p>
-                <p className="text-gray-500 text-xs"># OR create a config file:</p>
-                <p><span className="text-blue-400">echo</span> <span className="text-green-300">'{'{"api_key": "YOUR_KEY", "explore": true}'}'</span> &gt; .urlscan-config.json</p>
               </div>
             </div>
           </div>

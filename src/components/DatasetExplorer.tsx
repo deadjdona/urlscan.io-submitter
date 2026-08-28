@@ -77,6 +77,8 @@ export default function DatasetExplorer() {
   const [selectedFile, setSelectedFile] = useState<string>('pages.dev');
   const [loading, setLoading] = useState<boolean>(false);
 
+  const [isBackendOffline, setIsBackendOffline] = useState<boolean>(false);
+
   // Batching tool state
   const [batchSize, setBatchSize] = useState<number>(1000);
   const [splitMode, setSplitMode] = useState<'size' | 'prefix'>('size');
@@ -90,17 +92,19 @@ export default function DatasetExplorer() {
 
   const loadData = async () => {
     setLoading(true);
+    setIsBackendOffline(false);
     try {
       const dList = await fetchDatasets();
       setDatasets(dList);
     } catch {
-      // Backend might be offline, fallback gracefully
+      setIsBackendOffline(true);
     }
 
     try {
       const s = await fetchDatasetStats(selectedFile);
       setStats(s);
     } catch {
+      setIsBackendOffline(true);
       setStats(FALLBACK_STATS);
     } finally {
       setLoading(false);
@@ -188,6 +192,15 @@ export default function DatasetExplorer() {
           </button>
         </div>
       </div>
+
+      {isBackendOffline && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-xs flex items-center gap-3 shadow-xs">
+          <HardDrive size={16} className="text-amber-500 shrink-0" />
+          <p>
+            <strong>Backend API is offline.</strong> Using local mock dataset <code>pages.dev</code> for demonstration. Start the Express server to analyze live files.
+          </p>
+        </div>
+      )}
 
       {/* Overview Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

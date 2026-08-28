@@ -10,9 +10,12 @@ A high-performance, zero-dependency Python command-line tool to automate malware
 
 ## ✨ Features
 
+- **Live Interactive Web Dashboard** 🌐: A modern React+Vite UI with a real-time progress HUD, dataset explorer, and dynamic worker matrix for managing large-scale scans visually.
+- **Full-Stack Express Backend** 🛠️: Included Node.js server to handle API proxies, Serve-Sent Events (SSE) streaming, and real-time backend scan dispatching without hanging your browser tab.
 - **Smart Rate Limiting** 🚦: Intelligently parses urlscan's `X-Rate-Limit-Reset-After` headers to gracefully backoff without getting banned.
-- **Multi-threaded Parallel Processing** ⚡: Utilize thread pooling to submit massive lists concurrently with `-w` (workers).
+- **Multi-threaded Parallel Processing** ⚡: Utilize thread pooling to submit massive lists concurrently with `-w` (workers) on the CLI or directly in the UI.
 - **Matrix Generation (Exploratory)** 🗺️: Automatically enumerate over 20 (`-x`), 60+ (`-xx`), or 140+ (`-xxx`) common recon subdomains (e.g., `mail`, `admin`, `api`, `auth`, `grafana`, `sso`).
+- **Dataset Profiler & Partitioner** 📈: Visually analyze large domain dumps (like `.pages.dev` sets) and auto-split them into quota-friendly chunk files.
 - **Custom Wordlists (`--wordlist, -📖`)** 📝: Provide your own custom wordlist of subdomains via a `.txt` file instead of using the built-in generated lists.
 - **Stealth Timing (`--delay, -🐢`)** ⏱️: Add a manual float delay in seconds between threaded dispatches to stagger requests and blend in.
 - **Data Exporting** 💾: Dump raw JSON API reports or formatted CSV summaries (`-j`, `-e`).
@@ -20,6 +23,7 @@ A high-performance, zero-dependency Python command-line tool to automate malware
 
 ## 🛠️ Installation
 
+### Python CLI Tool
 We recommend using a Python virtual environment to keep dependencies isolated:
 
 ```bash
@@ -33,14 +37,24 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # 3. Install the package
 pip install .
-
-# Alternatively, if you are developing on the project:
-make install-dev
 ```
 
 This will install the `urlscan-submit` command into your active environment.
 
-## ⚙️ Setup
+### Web UI Dashboard (React + Express)
+To use the live visual dashboard and dataset explorer:
+
+```bash
+# 1. Install Node.js dependencies
+npm install
+
+# 2. Start the development server (runs Vite + API proxy on port 3000)
+npm run dev
+
+# Or for production:
+npm run build
+npm run server # Serves static UI + SSE API on port 3001
+```
 
 You can provide your configuration (and API key) in several ways:
 

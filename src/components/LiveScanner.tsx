@@ -252,6 +252,11 @@ export default function LiveScanner() {
       return;
     }
 
+    if (engine !== 'simulation' && !apiKey.trim()) {
+      alert('An API Key is required for Direct API or Backend SSE mode. Please enter your urlscan.io API Key.');
+      return;
+    }
+
     const config: ScanConfig = {
       apiKey: apiKey.trim() || undefined,
       visibility,
