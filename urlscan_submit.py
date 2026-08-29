@@ -633,68 +633,53 @@ configuration & api key priority:
 """
     )
     
-    # Input targets (mutually exclusive)
-    target_group = parser.add_argument_group("Target Specification (Required - choose one)")
-    target_mut = target_group.add_mutually_exclusive_group(required=True)
+    # Target specification (mutually exclusive)
+    target_mut = parser.add_mutually_exclusive_group(required=True)
+    
+    parser.add_argument("-c", "--config", metavar="FILE",
+                        help="Path to custom JSON/YAML configuration file")
+    parser.add_argument("--country", metavar="CC",
+                        help="2-letter ISO country code to scan from (e.g. us, de, jp)")
     target_mut.add_argument("-d", "--domain", metavar="DOMAIN",
                             help="Single target domain, hostname, or IP address (e.g. example.com or 123.21.33.22)")
+    parser.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
+                        help="Intentional delay floor in seconds between worker dispatches (default: 0.0)")
+    parser.add_argument("-e", "--export-csv", metavar="FILE",
+                        help="Export formatted scan summary to CSV file (forces report polling)")
     target_mut.add_argument("-f", "--file", metavar="FILE",
                             help="Path to line-delimited text file containing target domains or IP addresses")
-
-    # Reconnaissance & Scope
-    recon_group = parser.add_argument_group("Reconnaissance & Matrix Generation")
-    recon_group.add_argument("-p", "--protocols", choices=["http", "https", "both"], default=None,
-                             help="Protocols to generate in matrix (default: https)")
-    recon_group.add_argument("-s", "--subdomains", choices=["root", "www", "both"], default=None,
-                             help="Base subdomains to include (default: root)")
-    recon_group.add_argument("-x", "--explore", action="store_true",
-                             help="Enumerate +20 common subdomains (ftp, mail, admin, api, etc.)")
-    recon_group.add_argument("-xx", "--deep-explore", action="store_true",
-                             help="Enumerate +60 deep reconnaissance subdomains (auth, sso, git, etc.)")
-    recon_group.add_argument("-xxx", "--massive-explore", action="store_true",
-                             help="Enumerate +140 massive reconnaissance subdomains (cloud, db, k8s, etc.)")
-    recon_group.add_argument("--wordlist", metavar="FILE",
-                             help="Path to custom subdomains wordlist for custom matrix generation")
-    recon_group.add_argument("-I", "--resolve-ips", "--submit-ips", action="store_true",
-                             help="Resolve DNS A-records for subdomains and also submit their IP addresses (http://<ip>/ and https://<ip>/)")
-
-    # Concurrency, Timing & Evasion
-    perf_group = parser.add_argument_group("Concurrency & Timing")
-    perf_group.add_argument("-w", "--workers", type=int, default=1, metavar="N",
-                            help="Number of concurrent worker threads (default: 1)")
-    perf_group.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
-                            help="Intentional delay floor in seconds between worker dispatches (default: 0.0)")
-
-    # Output & Reporting
-    out_group = parser.add_argument_group("Output & Reporting")
-    out_group.add_argument("-r", "--report", action="store_true",
-                           help="Wait for scan completion and display summary report")
-    out_group.add_argument("-e", "--export-csv", metavar="FILE",
-                           help="Export formatted scan summary to CSV file (forces report polling)")
-    out_group.add_argument("-j", "--json-log", metavar="FILE",
-                           help="Export full raw JSON API responses to file (forces report polling)")
-    out_group.add_argument("-v", "--verbose", action="store_true",
-                           help="Enable verbose HTTP request/response debugging output")
-
-    # Authentication & Config
-    auth_group = parser.add_argument_group("Authentication & Configuration")
-    auth_group.add_argument("-k", "--api-key-file", metavar="FILE",
-                            help="Path to file containing urlscan.io API key")
-    auth_group.add_argument("-c", "--config", metavar="FILE",
-                            help="Path to custom JSON/YAML configuration file")
-    auth_group.add_argument("-V", "--visibility", choices=["public", "unlisted", "private"], default=None,
-                            help="Scan visibility on urlscan.io (default: public)")
-
-    # Advanced API Parameters
-    api_group = parser.add_argument_group("Advanced API Parameters")
-    api_group.add_argument("--tags", metavar="TAGS",
-                           help="Comma-separated custom tags (e.g. 'phishing,redteam', max 10)")
-    api_group.add_argument("--user-agent", metavar="UA",
-                           help="Override default User-Agent browser string")
-    api_group.add_argument("--referer", metavar="URL",
-                           help="Override HTTP Referer header sent during scan")
-    api_group.add_argument("--country", metavar="CC",
-                           help="2-letter ISO country code to scan from (e.g. us, de, jp)")
+    parser.add_argument("-I", "--resolve-ips", "--submit-ips", action="store_true",
+                        help="Resolve DNS A-records for subdomains and also submit their IP addresses (http://<ip>/ and https://<ip>/)")
+    parser.add_argument("-j", "--json-log", metavar="FILE",
+                        help="Export full raw JSON API responses to file (forces report polling)")
+    parser.add_argument("-k", "--api-key-file", metavar="FILE",
+                        help="Path to file containing urlscan.io API key")
+    parser.add_argument("-p", "--protocols", choices=["http", "https", "both"], default=None,
+                        help="Protocols to generate in matrix (default: https)")
+    parser.add_argument("-r", "--report", action="store_true",
+                        help="Wait for scan completion and display summary report")
+    parser.add_argument("--referer", metavar="URL",
+                        help="Override HTTP Referer header sent during scan")
+    parser.add_argument("-s", "--subdomains", choices=["root", "www", "both"], default=None,
+                        help="Base subdomains to include (default: root)")
+    parser.add_argument("--tags", metavar="TAGS",
+                        help="Comma-separated custom tags (e.g. 'phishing,redteam', max 10)")
+    parser.add_argument("--user-agent", metavar="UA",
+                        help="Override default User-Agent browser string")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Enable verbose HTTP request/response debugging output")
+    parser.add_argument("-V", "--visibility", choices=["public", "unlisted", "private"], default=None,
+                        help="Scan visibility on urlscan.io (default: public)")
+    parser.add_argument("-w", "--workers", type=int, default=1, metavar="N",
+                        help="Number of concurrent worker threads (default: 1)")
+    parser.add_argument("--wordlist", metavar="FILE",
+                        help="Path to custom subdomains wordlist for custom matrix generation")
+    parser.add_argument("-x", "--explore", action="store_true",
+                        help="Enumerate +20 common subdomains (ftp, mail, admin, api, etc.)")
+    parser.add_argument("-xx", "--deep-explore", action="store_true",
+                        help="Enumerate +60 deep reconnaissance subdomains (auth, sso, git, etc.)")
+    parser.add_argument("-xxx", "--massive-explore", action="store_true",
+                        help="Enumerate +140 massive reconnaissance subdomains (cloud, db, k8s, etc.)")
 
     args = parser.parse_args()
     print_banner()

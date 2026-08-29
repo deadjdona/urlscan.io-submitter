@@ -464,56 +464,84 @@ urlscan-submit -f daily_domain_feed.txt -j daily_siem_feed.json -w 12 --tags "si
                 </thead>
                 <tbody className="divide-y divide-gray-100 font-sans">
                   <tr>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-c, --config &lt;FILE&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Path to custom JSON/YAML config file (e.g. <code className="bg-gray-100 px-1 rounded">.urlscan-config.json</code>).</td>
+                  </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--country &lt;CC&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">2-letter ISO country code scanner gateway to scan from (<code className="font-mono">us</code>, <code className="font-mono">de</code>, <code className="font-mono">jp</code>, <code className="font-mono">nl</code>).</td>
+                  </tr>
+                  <tr>
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-d, --domain &lt;DOMAIN/IP&gt;</td>
                     <td className="px-4 py-2.5 text-gray-600">Single base target domain or IPv4 address (e.g. <code className="bg-gray-100 px-1 rounded">example.com</code> or <code className="bg-gray-100 px-1 rounded">123.21.33.22</code>).</td>
+                  </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--delay &lt;SECONDS&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Intentional delay floor in seconds between worker dispatches to stay under rate limits.</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-e, --export-csv &lt;CSV&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Export formatted summary report to CSV file (forces report polling).</td>
                   </tr>
                   <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-f, --file &lt;FILE&gt;</td>
                     <td className="px-4 py-2.5 text-gray-600">Path to text file with domain/IP list (one per line, ignores <code className="bg-gray-100 px-1 rounded">#</code> comments).</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-p, --protocols &lt;P&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">Protocol generation: <code className="bg-gray-100 px-1 rounded font-mono">http</code>, <code className="bg-gray-100 px-1 rounded font-mono">https</code>, or <code className="bg-gray-100 px-1 rounded font-mono">both</code> (default: <code className="font-mono">https</code>).</td>
-                  </tr>
-                  <tr className="bg-gray-50/50">
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-s, --subdomains &lt;S&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">Base prefix: <code className="bg-gray-100 px-1 rounded font-mono">root</code>, <code className="bg-gray-100 px-1 rounded font-mono">www</code>, or <code className="bg-gray-100 px-1 rounded font-mono">both</code> (default: <code className="font-mono">root</code>).</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-x / -xx / -xxx</td>
-                    <td className="px-4 py-2.5 text-gray-600">Cartesian exploration matrix: Basic (+20), Deep (+60), or Massive (+140) common subdomains.</td>
-                  </tr>
-                  <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-purple-600">-I, --resolve-ips</td>
                     <td className="px-4 py-2.5 text-gray-600">Resolve DNS A-records for all subdomains and also submit their direct IP addresses (<code className="bg-gray-100 px-1 rounded font-mono">http://&lt;ip&gt;/</code> and <code className="bg-gray-100 px-1 rounded font-mono">https://&lt;ip&gt;/</code>).</td>
                   </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-j, --json-log &lt;JSON&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Export full raw response payload to JSON file (forces report polling).</td>
+                  </tr>
                   <tr>
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--wordlist &lt;FILE&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">Supply your own custom wordlist of subdomains to generate combinations against targets.</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-k, --api-key-file &lt;FILE&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Path to file containing urlscan.io API key.</td>
                   </tr>
                   <tr className="bg-gray-50/50">
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-w, --workers &lt;N&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">Number of parallel worker threads in the ThreadPool (default: 1).</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-p, --protocols &lt;P&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Protocol generation: <code className="bg-gray-100 px-1 rounded font-mono">http</code>, <code className="bg-gray-100 px-1 rounded font-mono">https</code>, or <code className="bg-gray-100 px-1 rounded font-mono">both</code> (default: <code className="font-mono">https</code>).</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--delay &lt;SECONDS&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">Intentional delay floor in seconds between worker dispatches to stay under rate limits.</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-r, --report</td>
+                    <td className="px-4 py-2.5 text-gray-600">Wait for scan completion and display summary report.</td>
                   </tr>
                   <tr className="bg-gray-50/50">
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-V, --visibility &lt;V&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600"><code className="bg-gray-100 px-1 rounded font-mono">public</code> (feed), <code className="bg-gray-100 px-1 rounded font-mono">unlisted</code> (link-only), or <code className="bg-gray-100 px-1 rounded font-mono">private</code> (team-only).</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--referer &lt;URL&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Override HTTP Referer header sent during scan.</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-e &lt;CSV&gt; / -j &lt;JSON&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">Export formatted summary report to CSV or full raw response payload to JSON.</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-s, --subdomains &lt;S&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Base prefix: <code className="bg-gray-100 px-1 rounded font-mono">root</code>, <code className="bg-gray-100 px-1 rounded font-mono">www</code>, or <code className="bg-gray-100 px-1 rounded font-mono">both</code> (default: <code className="font-mono">root</code>).</td>
                   </tr>
                   <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--tags &lt;T1,T2&gt;</td>
                     <td className="px-4 py-2.5 text-gray-600">Comma-separated list of tags to tag submissions on urlscan.io (max 10).</td>
                   </tr>
                   <tr>
-                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--country &lt;CC&gt;</td>
-                    <td className="px-4 py-2.5 text-gray-600">2-letter ISO country code scanner gateway to scan from (<code className="font-mono">us</code>, <code className="font-mono">de</code>, <code className="font-mono">jp</code>, <code className="font-mono">nl</code>).</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--user-agent &lt;UA&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Override default User-Agent browser string.</td>
+                  </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-v, --verbose</td>
+                    <td className="px-4 py-2.5 text-gray-600">Enable verbose HTTP request/response debugging output.</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-V, --visibility &lt;V&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600"><code className="bg-gray-100 px-1 rounded font-mono">public</code> (feed), <code className="bg-gray-100 px-1 rounded font-mono">unlisted</code> (link-only), or <code className="bg-gray-100 px-1 rounded font-mono">private</code> (team-only).</td>
+                  </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-w, --workers &lt;N&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Number of parallel worker threads in the ThreadPool (default: 1).</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--wordlist &lt;FILE&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Supply your own custom wordlist of subdomains to generate combinations against targets.</td>
+                  </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-x / -xx / -xxx</td>
+                    <td className="px-4 py-2.5 text-gray-600">Cartesian exploration matrix: Basic (+20), Deep (+60), or Massive (+140) common subdomains.</td>
                   </tr>
                 </tbody>
               </table>
