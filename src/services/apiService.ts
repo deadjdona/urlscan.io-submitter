@@ -37,13 +37,40 @@ export async function checkBackendHealth(): Promise<boolean> {
 }
 
 /**
+ * Helper to safely extract JSON or error message from fetch Response
+ */
+async function parseApiResponse<T>(res: Response, fallbackError: string): Promise<T> {
+  if (!res.ok) {
+    let errMsg = `${fallbackError} (HTTP ${res.status})`;
+    try {
+      const errJson = await res.json();
+      errMsg = errJson.error || errJson.message || errMsg;
+    } catch {
+      try {
+        const text = await res.text();
+        if (text && text.trim()) {
+          errMsg = `${fallbackError}: ${text.substring(0, 100)}`;
+        }
+      } catch {
+        // Use default errMsg
+      }
+    }
+    throw new Error(errMsg);
+  }
+  return res.json();
+}
+
+/**
  * Fetch list of available domain datasets
  * @returns Array of dataset metadata (filename, filesize, domain count)
  */
 export async function fetchDatasets(): Promise<DatasetInfo[]> {
-  const res = await fetch(`${API_BASE}/datasets`);
-  if (!res.ok) throw new Error('Failed to fetch datasets');
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE}/datasets`);
+    return await parseApiResponse<DatasetInfo[]>(res, 'Failed to fetch datasets');
+  } catch (err: any) {
+    throw new Error(err.message || 'Failed to fetch datasets');
+  }
 }
 
 /**
@@ -56,9 +83,12 @@ export async function fetchDatasetSample(
   filename: string = 'pages.dev',
   limit: number = 50
 ): Promise<{ file: string; count: number; sample: string[] }> {
-  const res = await fetch(`${API_BASE}/datasets/sample?file=${encodeURIComponent(filename)}&limit=${limit}`);
-  if (!res.ok) throw new Error('Failed to fetch dataset sample');
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE}/datasets/sample?file=${encodeURIComponent(filename)}&limit=${limit}`);
+    return await parseApiResponse(res, 'Failed to fetch dataset sample');
+  } catch (err: any) {
+    throw new Error(err.message || 'Failed to fetch dataset sample');
+  }
 }
 
 /**
@@ -68,9 +98,12 @@ export async function fetchDatasetSample(
  * @returns Comprehensive statistics about the dataset
  */
 export async function fetchDatasetStats(filename: string = 'pages.dev'): Promise<DatasetStats> {
-  const res = await fetch(`${API_BASE}/datasets/stats?file=${encodeURIComponent(filename)}`);
-  if (!res.ok) throw new Error('Failed to fetch dataset stats');
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE}/datasets/stats?file=${encodeURIComponent(filename)}`);
+    return await parseApiResponse<DatasetStats>(res, 'Failed to fetch dataset stats');
+  } catch (err: any) {
+    throw new Error(err.message || 'Failed to fetch dataset stats');
+  }
 }
 
 /**
@@ -105,16 +138,16 @@ export async function startBackendScan(
   config: ScanConfig,
   targets: string[]
 ): Promise<{ sessionId: string; targetCount: number }> {
-  const res = await fetch(`${API_BASE}/scan/start`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ config, targets }),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || 'Failed to start backend scan');
+  try {
+    const res = await fetch(`${API_BASE}/scan/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config, targets }),
+    });
+    return await parseApiResponse(res, 'Failed to start backend scan');
+  } catch (err: any) {
+    throw new Error(err.message || 'Failed to start backend scan');
   }
-  return res.json();
 }
 
 /**
@@ -227,6 +260,10 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
  * @param sessionId - Session ID to terminate
  */
 export async function stopBackendScan(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/scan/stop/${sessionId}`, { method: 'POST' });
+  try {
+    await fetch(`${API_BASE}/scan/stop/${sessionId}`, { method: 'POST' });
+  } catch (err) {
+    console.warn(`Failed to cleanly stop backend scan for session ${sessionId}:`, err);
+  }
 }
 
