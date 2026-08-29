@@ -1,3 +1,12 @@
+/**
+ * Main application component for urlscan-submitter
+ * 
+ * Provides a tabbed interface with three primary sections:
+ * 1. Live Scanner - Real-time URL scanning with progress tracking
+ * 2. Dataset Explorer - Browse and analyze domain datasets
+ * 3. Documentation - Usage guides and API references
+ */
+
 import React, { useState } from 'react';
 import { Terminal, Activity, BarChart3, BookOpen, ExternalLink } from 'lucide-react';
 import LiveScanner from './components/LiveScanner';
@@ -7,15 +16,16 @@ import DocsView from './components/DocsView';
 type AppTab = 'scanner' | 'dataset' | 'docs';
 
 export default function App() {
+  // Track which tab is currently active
   const [activeTab, setActiveTab] = useState<AppTab>('scanner');
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-800 selection:bg-blue-100 selection:text-blue-900">
-      {/* Top Navbar */}
+      {/* Top Navigation Bar */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo / Brand */}
+            {/* App Logo & Brand Section */}
             <div className="flex items-center gap-3">
               <div className="p-2 bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-xl shadow-xs">
                 <Terminal size={22} strokeWidth={2.5} />
@@ -33,7 +43,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Navigation Tabs */}
+            {/* Tab Navigation Buttons */}
             <nav className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200">
               <button
                 onClick={() => setActiveTab('scanner')}
@@ -88,7 +98,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main Content Area - Renders active tab component */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'scanner' && <LiveScanner />}
         {activeTab === 'dataset' && <DatasetExplorer />}

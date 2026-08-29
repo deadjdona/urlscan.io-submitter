@@ -1,3 +1,18 @@
+/**
+ * LiveScanner Component: Interactive URL Scanning UI
+ * 
+ * Main scan orchestration component providing:
+ * - Configurable scan parameters (API key, visibility, protocols, subdomains, etc.)
+ * - Real-time progress tracking and worker status monitoring
+ * - Dual-mode support: local client-side parallel scanning or backend SSE streaming
+ * - Result filtering, search, and export functionality
+ * - Live log streaming with auto-scroll capability
+ * - Start/pause/resume/stop lifecycle controls
+ * 
+ * Uses ClientScanRunner for local scanning or connects to backend via SSE for distributed scans.
+ * Maintains comprehensive metrics (rate, ETA, success/rate-limit/error counts) and worker diagnostics.
+ */
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Play,
@@ -47,6 +62,10 @@ import {
   checkBackendHealth,
 } from '../services/apiService';
 
+/**
+ * Pre-defined sample targets for Cloudflare Pages (.pages.dev) reconnaissance
+ * Useful for quick testing without manual input
+ */
 const SAMPLE_PAGES_DEV = [
   '0-0.pages.dev',
   '0-1.pages.dev',
@@ -70,6 +89,9 @@ const SAMPLE_PAGES_DEV = [
   'pay-checkout-flow.pages.dev',
 ];
 
+/**
+ * Sample banking infrastructure domains for reconnaissance testing
+ */
 const BANKING_SAMPLES = [
   'bank-garantiya-fz.ru',
   'api.bank-garantiya-fz.ru',
@@ -77,8 +99,16 @@ const BANKING_SAMPLES = [
   'stage.bank-garantiya-fz.ru',
 ];
 
+/**
+ * LiveScanner Component: Main UI for scan orchestration
+ * 
+ * Manages scan lifecycle: configuration → target input → execution → results display.
+ * Supports both local parallel scanning and backend SSE streaming.
+ * Handles pause/resume, result filtering, export, and real-time diagnostics.
+ */
 export default function LiveScanner() {
-  // Scan Configuration State
+  // ========== SCAN CONFIGURATION STATE ==========
+  // API credentials and submission parameters
   const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem('urlscan_api_key') || '');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [visibility, setVisibility] = useState<VisibilityMode>('public');
@@ -91,11 +121,13 @@ export default function LiveScanner() {
   const [country, setCountry] = useState<string>('');
   const [engine, setEngine] = useState<EngineMode>('simulation');
 
-  // Input Targets State
+  // ========== TARGET INPUT STATE ==========
+  // Raw user input and backend availability flag
   const [targetsInput, setTargetsInput] = useState<string>(SAMPLE_PAGES_DEV.join('\n'));
   const [backendAvailable, setBackendAvailable] = useState<boolean>(false);
 
-  // Runtime State
+  // ========== RUNTIME EXECUTION STATE ==========
+  // Scan progress, results, worker statuses, and metrics
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [results, setResults] = useState<ScanResult[]>([]);
@@ -114,21 +146,28 @@ export default function LiveScanner() {
     backoffSeconds: 0,
   });
 
-  // Table Filtering & UI State
+  // ========== UI STATE ==========
+  // Result filtering, tab selection, and collapsible sections
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'rate_limited' | 'error'>('all');
   const [activeTab, setActiveTab] = useState<'results' | 'workers' | 'logs'>('results');
   const [autoScrollLogs, setAutoScrollLogs] = useState<boolean>(true);
   const [isConfigOpen, setIsConfigOpen] = useState<boolean>(true);
 
-  // References for active scan
+  // ========== REFERENCES ==========
+  // Mutable refs for active scan runner and SSE cleanup handlers
   const clientRunnerRef = useRef<ClientScanRunner | null>(null);
   const backendSessionIdRef = useRef<string | null>(null);
   const sseCleanupRef = useRef<(() => void) | null>(null);
   const logsEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Check backend health on mount
+  // ========== EFFECTS ==========
+
+  /**
+   * Check backend availability on component mount
+   * Sets engine mode to 'backend_sse' if server is responding
+   */
   useEffect(() => {
     checkBackendHealth().then((available) => {
       setBackendAvailable(available);
@@ -138,21 +177,31 @@ export default function LiveScanner() {
     });
   }, []);
 
-  // Save API key to local storage
+  /**
+   * Persist API key in localStorage for convenience
+   * Decryption left to user discretion (production should use secure storage)
+   */
   useEffect(() => {
     if (apiKey) {
       localStorage.setItem('urlscan_api_key', apiKey);
     }
   }, [apiKey]);
 
-  // Auto-scroll logs
+  /**
+   * Auto-scroll logs container to latest entry for real-time viewing
+   * Respect autoScrollLogs toggle to allow manual scrolling
+   */
   useEffect(() => {
     if (autoScrollLogs && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoScrollLogs]);
 
-  // Computed raw targets array
+  // ========== COMPUTED VALUES (MEMOIZED) ==========
+
+  /**
+   * Parse raw targets input, stripping whitespace and ignoring comments (lines starting with #)
+   */
   const rawTargets = useMemo(() => {
     return targetsInput
       .split('\n')
@@ -160,12 +209,18 @@ export default function LiveScanner() {
       .filter((l) => l && !l.startsWith('#'));
   }, [targetsInput]);
 
-  // Matrix expanded target count preview
+  /**
+   * Expand targets using the URL matrix (protocol × subdomains × explore combinations)
+   * Shows user the total scan count before submission
+   */
   const matrixCount = useMemo(() => {
     return expandTargetMatrix(rawTargets, protocols, subdomains, explore).length;
   }, [rawTargets, protocols, subdomains, explore]);
 
-  // Filtered results for table
+  /**
+   * Apply search and status filters to results for table display
+   * Searches by target domain, full URL, or UUID
+   */
   const filteredResults = useMemo(() => {
     return results.filter((r) => {
       const matchesSearch =
@@ -181,7 +236,13 @@ export default function LiveScanner() {
     });
   }, [results, searchQuery, statusFilter]);
 
-  // Format seconds to mm:ss or hh:mm:ss
+  // ========== HELPER FUNCTIONS ==========
+
+  /**
+   * Format elapsed seconds to human-readable time string
+   * @param secs - Number of seconds
+   * @returns Time string in mm:ss or hh:mm:ss format
+   */
   const formatTime = (secs: number) => {
     const h = Math.floor(secs / 3600);
     const m = Math.floor((secs % 3600) / 60);
@@ -192,7 +253,10 @@ export default function LiveScanner() {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Helper: append log
+  /**
+   * Append a timestamped log entry to the live log stream
+   * Supports multiple log levels (info, warn, error, debug) and optional worker ID
+   */
   const appendLog = (level: LogEntry['level'], message: string, workerId?: number) => {
     setLogs((prev) => [
       ...prev,
@@ -206,7 +270,12 @@ export default function LiveScanner() {
     ]);
   };
 
-  // Presets
+  /**
+   * Load predefined target sets for quick testing
+   * 'pages20': Hard-coded Cloudflare Pages samples
+   * 'pages100': Fetch 100 targets from backend dataset or generate fallback
+   * 'banking': Russian banking domain infrastructure
+   */
   const loadPreset = (type: 'pages20' | 'pages100' | 'banking') => {
     if (type === 'pages20') {
       setTargetsInput(SAMPLE_PAGES_DEV.join('\n'));
@@ -229,7 +298,10 @@ export default function LiveScanner() {
     }
   };
 
-  // File Upload handler
+  /**
+   * File upload handler: Read text file and populate targets input
+   * Counts non-empty, non-comment lines and logs result
+   */
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -245,7 +317,16 @@ export default function LiveScanner() {
     reader.readAsText(file);
   };
 
-  // Start Scan handler
+  /**
+   * Start scan orchestration
+   * Validates inputs, expands targets, initializes workers, and routes to backend or client runner
+   * 
+   * Execution flow:
+   * 1. Validate targets and API key (if needed)
+   * 2. Build ScanConfig from UI state
+   * 3. For backend_sse: Connect via SSE and stream results/progress
+   * 4. For simulation/direct_api: Launch ClientScanRunner with worker threads
+   */
   const handleStartScan = async () => {
     if (rawTargets.length === 0) {
       alert('Please provide at least one target domain.');
@@ -365,7 +446,10 @@ export default function LiveScanner() {
     }
   };
 
-  // Pause / Resume handler
+  /**
+   * Toggle pause/resume for active scan
+   * Updates both client runner and UI state
+   */
   const handleTogglePause = () => {
     if (isPaused) {
       clientRunnerRef.current?.resume();
@@ -376,7 +460,10 @@ export default function LiveScanner() {
     }
   };
 
-  // Stop Scan handler
+  /**
+   * Stop active scan: abort client runner, stop backend session, cleanup SSE connection
+   * Resets running/paused state and logs stop event
+   */
   const handleStopScan = () => {
     if (clientRunnerRef.current) {
       clientRunnerRef.current.stop();
@@ -392,7 +479,10 @@ export default function LiveScanner() {
     appendLog('warn', 'Scan process stopped by user.');
   };
 
-  // Export Results to CSV
+  /**
+   * Export current results to CSV file
+   * Includes all fields: ID, target, URL, status, HTTP code, UUID, result URL, latency, timestamp, visibility
+   */
   const handleExportCSV = () => {
     if (results.length === 0) return;
     const headers = ['ID', 'Target', 'URL', 'Status', 'HTTP_Status', 'UUID', 'Result_URL', 'Latency_ms', 'Timestamp', 'Visibility'];
@@ -420,7 +510,10 @@ export default function LiveScanner() {
     appendLog('info', `Exported ${results.length} results to CSV.`);
   };
 
-  // Export Results to JSON
+  /**
+   * Export current results to JSON file with full details preserved
+   * Useful for integration with other tools and detailed analysis
+   */
   const handleExportJSON = () => {
     if (results.length === 0) return;
     const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });

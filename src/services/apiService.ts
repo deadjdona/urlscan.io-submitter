@@ -1,3 +1,16 @@
+/**
+ * API Service: Backend Communication Layer
+ * 
+ * Provides type-safe client functions for communicating with the Node.js/Express backend.
+ * Handles both REST API calls and Server-Sent Events (SSE) streaming for real-time scan updates.
+ * 
+ * Key responsibilities:
+ * - Health checks to verify backend availability
+ * - Dataset discovery and exploration (list, sample, statistics)
+ * - Scan session management (initiate, stream, terminate)
+ * - Real-time progress updates via SSE event streaming
+ */
+
 import {
   DatasetInfo,
   DatasetStats,
@@ -10,6 +23,10 @@ import {
 
 const API_BASE = '/api';
 
+/**
+ * Verify backend server health and availability
+ * @returns true if backend responds successfully within 2s timeout, false otherwise
+ */
 export async function checkBackendHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(2000) });
@@ -19,12 +36,22 @@ export async function checkBackendHealth(): Promise<boolean> {
   }
 }
 
+/**
+ * Fetch list of available domain datasets
+ * @returns Array of dataset metadata (filename, filesize, domain count)
+ */
 export async function fetchDatasets(): Promise<DatasetInfo[]> {
   const res = await fetch(`${API_BASE}/datasets`);
   if (!res.ok) throw new Error('Failed to fetch datasets');
   return res.json();
 }
 
+/**
+ * Fetch sample of domains from a dataset
+ * @param filename - Dataset filename (default: 'pages.dev')
+ * @param limit - Number of samples to return (default: 50)
+ * @returns Sample of domains from the dataset
+ */
 export async function fetchDatasetSample(
   filename: string = 'pages.dev',
   limit: number = 50
@@ -34,22 +61,46 @@ export async function fetchDatasetSample(
   return res.json();
 }
 
+/**
+ * Fetch statistical analysis of a dataset
+ * Includes entropy calculation, domain pattern analysis, TLD distribution, etc.
+ * @param filename - Dataset filename (default: 'pages.dev')
+ * @returns Comprehensive statistics about the dataset
+ */
 export async function fetchDatasetStats(filename: string = 'pages.dev'): Promise<DatasetStats> {
   const res = await fetch(`${API_BASE}/datasets/stats?file=${encodeURIComponent(filename)}`);
   if (!res.ok) throw new Error('Failed to fetch dataset stats');
   return res.json();
 }
 
+/**
+ * Callback interface for Server-Sent Events (SSE) during scan execution
+ * Allows UI to listen for real-time updates from backend workers
+ */
 export interface SSECallbacks {
+  /** Called when scan session initializes with session metadata */
   onInit?: (data: { sessionId: string; total: number; workers: number }) => void;
+  /** Called when a worker updates its processing state */
   onWorkerUpdate?: (worker: WorkerStatus) => void;
+  /** Called when a URL scan completes with result data */
   onScanResult?: (result: ScanResult) => void;
+  /** Called periodically with aggregated progress metrics */
   onProgress?: (progress: ProgressMetrics) => void;
+  /** Called for detailed log entries from workers */
   onLog?: (log: LogEntry) => void;
+  /** Called when scan session completes with final summary */
   onComplete?: (summary: any) => void;
+  /** Called if connection error occurs */
   onError?: (err: any) => void;
 }
 
+/**
+ * Initiate a URL scanning session on the backend
+ * Starts worker threads that will process URLs in parallel with rate-limit handling
+ * @param config - Scan configuration (worker count, rate limits, etc.)
+ * @param targets - Array of URLs/domains to scan
+ * @returns Session ID and target count confirmation
+ */
 export async function startBackendScan(
   config: ScanConfig,
   targets: string[]
@@ -66,9 +117,18 @@ export async function startBackendScan(
   return res.json();
 }
 
+/**
+ * Subscribe to real-time scan updates via Server-Sent Events (SSE)
+ * Opens persistent connection to backend streaming endpoint and parses events
+ * Provides graceful error handling for malformed JSON in events
+ * @param sessionId - Session ID from startBackendScan
+ * @param callbacks - Object with optional handlers for each event type
+ * @returns Cleanup function to close the SSE connection
+ */
 export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () => void {
   const eventSource = new EventSource(`${API_BASE}/scan/stream/${sessionId}`);
 
+  // Session initialization event with metadata
   eventSource.addEventListener('init', (e) => {
     try {
       callbacks.onInit?.(JSON.parse(e.data));
@@ -77,6 +137,7 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
     }
   });
 
+  // Worker state changes (idle, processing, backing off)
   eventSource.addEventListener('worker_update', (e) => {
     try {
       const data = JSON.parse(e.data);
@@ -92,6 +153,7 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
     }
   });
 
+  // Individual URL scan completion results
   eventSource.addEventListener('scan_result', (e) => {
     try {
       callbacks.onScanResult?.(JSON.parse(e.data));
@@ -100,6 +162,7 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
     }
   });
 
+  // Aggregated progress update (total/processed/percentage/rate/ETA)
   eventSource.addEventListener('progress', (e) => {
     try {
       const p = JSON.parse(e.data);
@@ -120,6 +183,7 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
     }
   });
 
+  // Detailed worker log entries (debug/info/warn/error)
   eventSource.addEventListener('log', (e) => {
     try {
       const l = JSON.parse(e.data);
@@ -135,6 +199,7 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
     }
   });
 
+  // Scan session complete with final statistics
   eventSource.addEventListener('complete', (e) => {
     try {
       callbacks.onComplete?.(JSON.parse(e.data));
@@ -144,16 +209,23 @@ export function connectScanSSE(sessionId: string, callbacks: SSECallbacks): () =
     eventSource.close();
   });
 
+  // Network error or unexpected closure
   eventSource.onerror = (err) => {
     callbacks.onError?.(err);
     eventSource.close();
   };
 
+  // Return cleanup function for manual disconnection
   return () => {
     eventSource.close();
   };
 }
 
+/**
+ * Stop a running scan session
+ * Signals all workers to terminate gracefully and clean up session data
+ * @param sessionId - Session ID to terminate
+ */
 export async function stopBackendScan(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/scan/stop/${sessionId}`, { method: 'POST' });
 }

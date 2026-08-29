@@ -1,3 +1,16 @@
+/**
+ * DatasetExplorer Component: Dataset Statistics & Sampling UI
+ * 
+ * Displays dataset metadata and statistics from the backend, including:
+ * - Dataset listing with file sizes and record counts
+ * - Statistical analysis (length distribution, entropy, character patterns)
+ * - Random sampling with configurable batch size
+ * - Fallback statistics when backend is offline
+ * 
+ * Fetches data from backend via /api/datasets and /api/datasets/stats endpoints.
+ * Supports offline mode with built-in sample data for .pages.dev dataset.
+ */
+
 import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
@@ -14,6 +27,10 @@ import {
 import { DatasetStats, DatasetInfo } from '../types/scanner';
 import { fetchDatasetStats, fetchDatasets } from '../services/apiService';
 
+/**
+ * Fallback dataset statistics for .pages.dev when backend is unavailable
+ * Contains representative distribution metrics: length, entropy, character patterns
+ */
 const FALLBACK_STATS: DatasetStats = {
   file_path: 'pages.dev',
   total_records: 88906,
@@ -65,6 +82,9 @@ const FALLBACK_STATS: DatasetStats = {
   },
 };
 
+/**
+ * Batch metadata: name, record count, and sample entries
+ */
 interface GeneratedBatch {
   name: string;
   count: number;
@@ -72,11 +92,13 @@ interface GeneratedBatch {
 }
 
 export default function DatasetExplorer() {
+  // ============ STATE: DATA LOADING ============
   const [stats, setStats] = useState<DatasetStats>(FALLBACK_STATS);
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
   const [selectedFile, setSelectedFile] = useState<string>('pages.dev');
   const [loading, setLoading] = useState<boolean>(false);
 
+  // ============ STATE: UI & BATCHING ============
   const [isBackendOffline, setIsBackendOffline] = useState<boolean>(false);
 
   // Batching tool state
@@ -90,6 +112,10 @@ export default function DatasetExplorer() {
     loadData();
   }, [selectedFile]);
 
+  /**
+   * Load datasets list and statistics for selected file from backend
+   * Falls back to built-in statistics if backend is unavailable
+   */
   const loadData = async () => {
     setLoading(true);
     setIsBackendOffline(false);
@@ -111,6 +137,13 @@ export default function DatasetExplorer() {
     }
   };
 
+  /**
+   * Generate batches for dataset splitting
+   * Supports two split modes:
+   * - 'size': Fixed-size batches (e.g., 1000 records per batch)
+   * - 'prefix': Group by first character distribution (e.g., all domains starting with '1', '2', etc.)
+   * Simulates batch generation with animated progress updates
+   */
   const handleRunBatching = async () => {
     setIsBatching(true);
     setBatchProgress(0);
@@ -153,6 +186,10 @@ export default function DatasetExplorer() {
     setIsBatching(false);
   };
 
+  /**
+   * Download a batch file: creates a mock text file with sample domain entries
+   * Limited to first 200 entries for demo purposes, real implementation would stream actual data
+   */
   const downloadBatchFile = (batch: GeneratedBatch) => {
     const mockContent = Array.from({ length: Math.min(batch.count, 200) }, (_, idx) => `${idx}-${batch.name.replace('.txt', '')}.pages.dev`).join('\n');
     const blob = new Blob([mockContent], { type: 'text/plain' });

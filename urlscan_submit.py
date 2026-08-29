@@ -1,3 +1,13 @@
+"""
+urlscan-submitter: Automated reconnaissance & rate-limit resilient URL scanner
+
+This module submits URLs to urlscan.io for security scanning with built-in support for:
+- Rate limit handling via exponential backoff
+- Bulk submission from CSV files, plain text, or YAML config
+- Subdomain enumeration with three intensity levels (-x, -xx, -xxx)
+- Flexible output formats (JSON, CSV, TXT)
+"""
+
 import argparse
 import csv
 import json
@@ -18,7 +28,7 @@ try:
 except ImportError:
     tqdm = None
 
-# Colors for CLI polish (fallback gracefully if not supported)
+# ANSI color codes for terminal output formatting (gracefully degrades if not supported)
 class Colors:
     HEADER: str = '\033[95m'
     OKBLUE: str = '\033[94m'
@@ -31,6 +41,8 @@ class Colors:
     UNDERLINE: str = '\033[4m'
 
 # --- PROGRESS BAR SUPPORT ---
+# Implements a fallback ASCII progress bar when tqdm is unavailable
+# Ensures consistent progress reporting across environments
 class SimpleProgressBar:
     """Lightweight fallback ASCII progress bar used when tqdm is not installed."""
     def __init__(self, total: int, desc: str = "Scan Submissions", width: int = 30):

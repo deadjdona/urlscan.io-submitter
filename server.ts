@@ -1,3 +1,13 @@
+/**
+ * urlscan-submitter Backend Server
+ * 
+ * Express.js server providing REST API endpoints for:
+ * - Health checks and configuration validation
+ * - Dataset discovery, sampling, and statistical analysis
+ * - Scan session management with Server-Sent Events (SSE) streaming
+ * - Rate-limit resilient URL submission to urlscan.io
+ */
+
 import express, { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
@@ -11,7 +21,8 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
-// Enable CORS for local dev
+// Enable CORS for all origins (local development)
+// Allows frontend running on different port to make API requests
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
@@ -23,9 +34,14 @@ app.use((req, res, next) => {
   next();
 });
 
+// Directory containing scan datasets and results
 const SCANS_DIR = path.resolve(__dirname, '../scans');
 
-// Helper: Calculate Shannon entropy
+/**
+ * Calculate Shannon entropy of a string to measure randomness/uniformity
+ * Used to analyze domain name patterns in datasets
+ * Higher entropy = more random/diverse character distribution
+ */
 function calculateEntropy(text: string): number {
   if (!text) return 0;
   const freq: Record<string, number> = {};
@@ -41,12 +57,24 @@ function calculateEntropy(text: string): number {
   return entropy;
 }
 
-// 1. Health check
+// ============================================================================
+// API ENDPOINTS
+// ============================================================================
+
+/**
+ * Health check endpoint
+ * Returns server status and configuration details
+ * GET /api/health
+ */
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString(), scansDirExists: fs.existsSync(SCANS_DIR) });
 });
 
-// 2. List available datasets
+/**
+ * List all available datasets in the scans directory
+ * Returns metadata for each file (name, path, size, modification time)
+ * GET /api/datasets
+ */
 app.get('/api/datasets', (_req: Request, res: Response) => {
   try {
     if (!fs.existsSync(SCANS_DIR)) {
@@ -72,7 +100,11 @@ app.get('/api/datasets', (_req: Request, res: Response) => {
   }
 });
 
-// 3. Get dataset sample lines
+/**
+ * Fetch a sample of lines from a dataset file
+ * Useful for preview/inspection without loading entire file
+ * GET /api/datasets/sample?file=pages.dev&limit=50
+ */
 app.get('/api/datasets/sample', (req: Request, res: Response) => {
   try {
     const filename = (req.query.file as string) || 'pages.dev';
@@ -101,7 +133,12 @@ app.get('/api/datasets/sample', (req: Request, res: Response) => {
   }
 });
 
-// 4. Compute dataset stats (entropy, prefix breakdown, etc.)
+/**
+ * Compute and return detailed statistics for a dataset
+ * Analyzes domain patterns, entropy, length metrics, and classification
+ * Useful for reconnaissance and dataset characterization
+ * GET /api/datasets/stats?file=pages.dev
+ */
 app.get('/api/datasets/stats', (req: Request, res: Response) => {
   try {
     const filename = (req.query.file as string) || 'pages.dev';
@@ -118,24 +155,29 @@ app.get('/api/datasets/stats', (req: Request, res: Response) => {
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith('#'));
 
+    // Count unique vs duplicate entries
     const totalRecords = rawLines.length;
     const uniqueDomains = Array.from(new Set(rawLines));
     const duplicates = totalRecords - uniqueDomains.length;
 
+    // Classify domains (.pages.dev vs external)
     const pagesDevDomains = uniqueDomains.filter((d) => d.endsWith('.pages.dev'));
     const otherDomains = uniqueDomains.filter((d) => !d.endsWith('.pages.dev'));
 
+    // Compute length metrics
     const lengths = uniqueDomains.map((d) => d.length);
     const minLen = lengths.length ? Math.min(...lengths) : 0;
     const maxLen = lengths.length ? Math.max(...lengths) : 0;
     const avgLen = lengths.length ? lengths.reduce((a, b) => a + b, 0) / lengths.length : 0;
 
+    // Compute entropy metrics
     let totalEntropy = 0;
     for (const d of uniqueDomains) {
       totalEntropy += calculateEntropy(d);
     }
     const avgEntropy = uniqueDomains.length ? totalEntropy / uniqueDomains.length : 0;
 
+    // Analyze domain structure (prefix patterns, hyphens, etc.)
     const firstCharDist: Record<string, number> = {};
     const firstTwoChars: Record<string, number> = {};
     const hyphenCounts: Record<string, number> = {};
@@ -185,7 +227,14 @@ app.get('/api/datasets/stats', (req: Request, res: Response) => {
   }
 });
 
-// --- In-Memory Scan Sessions for SSE ---
+// ============================================================================
+// SCAN SESSION MANAGEMENT (Server-Sent Events)
+// ============================================================================
+
+/**
+ * Backend scan session: tracks in-memory state for a single scan operation
+ * Maintains config, targets, status, and SSE response stream
+ */
 interface BackendScanSession {
   id: string;
   config: any;
@@ -195,9 +244,14 @@ interface BackendScanSession {
   startTime: number;
 }
 
+// Active scan sessions stored in-memory (lost on server restart)
 const activeSessions = new Map<string, BackendScanSession>();
 
-// 5. Start Backend Scan Session
+/**
+ * Initiate a new scan session with specified configuration and targets
+ * Returns a sessionId for tracking progress via SSE
+ * POST /api/scan/start
+ */
 app.post('/api/scan/start', (req: Request, res: Response) => {
   const { config, targets } = req.body;
   if (!targets || !Array.isArray(targets) || targets.length === 0) {
@@ -218,7 +272,11 @@ app.post('/api/scan/start', (req: Request, res: Response) => {
   res.json({ sessionId, targetCount: targets.length });
 });
 
-// 6. SSE Stream for Live Scan Progress
+/**
+ * Server-Sent Events endpoint for live scan progress streaming
+ * Sends real-time updates on worker status, scan results, and progress
+ * GET /api/scan/stream/:sessionId
+ */
 app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
   const { sessionId } = req.params;
   const session = activeSessions.get(sessionId);
@@ -228,6 +286,7 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
     return;
   }
 
+  // Configure headers for SSE streaming
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -235,10 +294,12 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
 
   session.resStream = res;
 
+  // Helper function to send SSE formatted events
   const sendEvent = (eventType: string, data: any) => {
     res.write(`event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  // Send initial session metadata
   sendEvent('init', {
     sessionId,
     total: session.targets.length,
@@ -246,7 +307,7 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
     startTime: session.startTime,
   });
 
-  // Run backend worker loop
+  // Backend worker loop that processes targets
   const total = session.targets.length;
   const workers = session.config.workers || 4;
   const delaySec = session.config.delay || 0.5;

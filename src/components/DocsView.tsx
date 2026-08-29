@@ -1,9 +1,27 @@
+/**
+ * DocsView Component: Documentation & Getting Started Guide
+ * 
+ * Displays comprehensive documentation including:
+ * - Feature highlights (smart rate limiting, multi-threaded, matrix generation)
+ * - Full setup instructions for CLI + Web UI
+ * - CLI usage examples for direct URL submissions and bulk processing
+ * - Web UI guide with feature descriptions
+ * - Copy-to-clipboard functionality for quick command sharing
+ * 
+ * Educational focus: help users quickly understand and get started with urlscan.io-submitter
+ */
+
 import React, { useState } from 'react';
 import { Copy, Check, Shield, Zap, Activity } from 'lucide-react';
 
 export default function DocsView() {
+  // State: tracks which section was copied for visual feedback (2 second toast)
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
+  /**
+   * Copy text to clipboard and show brief success feedback
+   * Clears feedback after 2 seconds
+   */
   const handleCopy = (text: string, section: string) => {
     navigator.clipboard.writeText(text);
     setCopiedSection(section);
