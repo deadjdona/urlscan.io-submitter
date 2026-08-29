@@ -676,9 +676,9 @@ configuration & api key priority:
                         help="🔗 Override HTTP Referer header sent during scan")
     parser.add_argument("-s", "--subdomains", "-🏢", choices=["root", "www", "both"], default=None,
                         help="🏢 Base subdomains to include (default: root)")
-    parser.add_argument("--tags", "-🏷", metavar="TAGS",
+    parser.add_argument("-t", "--tags", "-🏷", metavar="TAGS",
                         help="🏷️ Comma-separated custom tags (e.g. 'phishing,redteam', max 10)")
-    parser.add_argument("--user-agent", "-🤖", metavar="UA",
+    parser.add_argument("-ua", "--user-agent", "-🤖", metavar="UA",
                         help="🤖 Override default User-Agent browser string")
     parser.add_argument("-v", "--verbose", "-🔊", action="store_true",
                         help="🔊 Enable verbose HTTP request/response debugging output")
@@ -686,7 +686,7 @@ configuration & api key priority:
                         help="👻 Scan visibility on urlscan.io (default: public)")
     parser.add_argument("-w", "--workers", "-🚀", type=int, default=1, metavar="N",
                         help="🚀 Number of concurrent worker threads (default: 1)")
-    parser.add_argument("--wordlist", "-📖", metavar="FILE",
+    parser.add_argument("-wl", "--wordlist", "-📖", metavar="FILE",
                         help="📖 Path to custom subdomains wordlist for custom matrix generation")
     parser.add_argument("-x", "--explore", "-🔍", action="store_true",
                         help="🔍 Enumerate +20 common subdomains (ftp, mail, admin, api, etc.)")
