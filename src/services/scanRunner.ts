@@ -743,33 +743,20 @@ export class ClientScanRunner {
        errorMessage: `HTTP ${res.status}: ${errText.substring(0, 100)}`,
        visibility: this.config.visibility,
      };
-    } catch (err: any) {
-      // Handle user cancellation / abort signal
-      if (err.name === 'AbortError' || this.abortController?.signal.aborted) {
-        return {
-          id: Math.random().toString(36).substring(2, 9),
-          target: domain,
-          url: targetUrl,
-          status: 'error',
-          latencyMs: Date.now() - startTime,
-          timestamp: new Date().toLocaleTimeString(),
-          workerId,
-          errorMessage: 'Scan aborted by user',
-          visibility: this.config.visibility,
-        };
-      }
-      // Network errors, DNS resolution, fetch failures, etc.
-      return {
-        id: Math.random().toString(36).substring(2, 9),
-        target: domain,
-        url: targetUrl,
-        status: 'error',
-        latencyMs: Date.now() - startTime,
-        timestamp: new Date().toLocaleTimeString(),
-        workerId,
-        errorMessage: err.message || 'Network / Fetch request failed',
-        visibility: this.config.visibility,
-      };
-    }
+   } catch (err: any) {
+     // Network errors, abort, fetch failures, etc.
+     return {
+       id: Math.random().toString(36).substring(2, 9),
+       target: domain,
+       url: targetUrl,
+       status: 'error',
+       latencyMs: Date.now() - startTime,
+       timestamp: new Date().toLocaleTimeString(),
+       workerId,
+       errorMessage: err.message || 'Network / Fetch request failed',
+       visibility: this.config.visibility,
+     };
+   }
   }
 }
+

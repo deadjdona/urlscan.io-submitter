@@ -471,9 +471,6 @@ def export_to_csv(reports: List[Dict[str, Any]], filename: str) -> None:
     """
     print(f"\n[*] Exporting {len(reports)} scan reports to {filename} ...")
     try:
-        dir_path = os.path.dirname(filename)
-        if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
         with open(filename, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             # Write header
@@ -516,9 +513,6 @@ def export_to_json(reports: List[Dict[str, Any]], filename: str) -> None:
     """
     print(f"\n{Colors.OKCYAN}[*] Exporting {len(reports)} scan reports to {filename} ...{Colors.ENDC}")
     try:
-        dir_path = os.path.dirname(filename)
-        if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
         with open(filename, mode='w', encoding='utf-8') as f:
             json.dump(reports, f, indent=4)
         print(f"{Colors.OKGREEN}[+] Successfully saved JSON to {filename}{Colors.ENDC}")
@@ -625,26 +619,26 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  # Quick single domain scan (defaults to https and root subdomain):
+  # 🎯 Quick single domain scan (defaults to https and root subdomain):
   urlscan-submit -d example.com
 
-  # Submit direct IP address with both HTTP and HTTPS variants:
+  # 🌐 Submit direct IP address with both HTTP and HTTPS variants:
   urlscan-submit -d 123.21.33.22 -p both
 
-  # Recon matrix including exploratory subdomains AND their resolved IP addresses:
+  # 🔎 Recon matrix including exploratory subdomains AND their resolved IP addresses:
   urlscan-submit -d target.com -p both -s both -x -I
 
-  # High-speed bulk submission from file using 10 concurrent threads:
+  # 🚀 High-speed bulk submission from file using 10 concurrent threads:
   urlscan-submit -f domains.txt -w 10 -I
 
-  # Private submission with delay floor, custom tags, and CSV summary export:
+  # 👻 Private submission with delay floor, custom tags, and CSV summary export:
   urlscan-submit -f targets.txt -V private --delay 1.5 --tags "incident-404,redteam" -e summary.csv -r
 
 configuration & api key priority:
-  1. CLI parameter: --api-key-file <path>
-  2. Config file: -c / --config <path> (or .urlscan-config.json / .urlscan-config.yaml)
-  3. Environment variable: URLSCAN_API_KEY
-  4. Local file: ./api_key.txt
+  1. 🔑 CLI parameter: --api-key-file <path>
+  2. ⚙️ Config file: -c / --config <path> (or .urlscan-config.json / .urlscan-config.yaml)
+  3. 🌐 Environment variable: URLSCAN_API_KEY
+  4. 📄 Local file: ./api_key.txt
 """
     )
     
@@ -929,57 +923,48 @@ configuration & api key priority:
     import concurrent.futures
     pbar = create_progress_bar(total=len(urls_to_scan), desc="Submitting URLs")
     
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-            futures = [executor.submit(process_url, url) for url in urls_to_scan]
-            
-            for future in concurrent.futures.as_completed(futures):
-                try:
-                    is_success, res = future.result()
-                except Exception as exc:
-                    is_success, res = False, None
-                    print(f"{Colors.FAIL}[-] Worker thread error: {exc}{Colors.ENDC}")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+        futures = [executor.submit(process_url, url) for url in urls_to_scan]
+        
+        for future in concurrent.futures.as_completed(futures):
+            is_success, res = future.result()
+            if is_success:
+                scan_metrics["success"] += 1
+            else:
+                scan_metrics["failed"] += 1
+                
+            if res and (args.export_csv or args.json_log):
+                all_reports.append(res)
+                scan_metrics["reports"] += 1
+                
+            postfix = {
+                "ok": scan_metrics["success"],
+                "err": scan_metrics["failed"]
+            }
+            if args.report or args.export_csv or args.json_log:
+                postfix["reports"] = scan_metrics["reports"]
+                
+            pbar.set_postfix(postfix, refresh=True)
+            pbar.update(1)
 
-                if is_success:
-                    scan_metrics["success"] += 1
-                else:
-                    scan_metrics["failed"] += 1
-                    
-                if res and (args.export_csv or args.json_log):
-                    all_reports.append(res)
-                    scan_metrics["reports"] += 1
-                    
-                postfix = {
-                    "ok": scan_metrics["success"],
-                    "err": scan_metrics["failed"]
-                }
-                if args.report or args.export_csv or args.json_log:
-                    postfix["reports"] = scan_metrics["reports"]
-                    
-                pbar.set_postfix(postfix, refresh=True)
-                pbar.update(1)
+    pbar.close()
 
-        pbar.close()
+    total_scanned = len(urls_to_scan)
+    print(f"\n{Colors.HEADER}============================================={Colors.ENDC}")
+    print(f"{Colors.BOLD} 🏁 SCAN SUBMISSIONS COMPLETED{Colors.ENDC}")
+    print(f"{Colors.HEADER}============================================={Colors.ENDC}")
+    print(f" Total Targets      : {total_scanned}")
+    print(f" Successful (UUID)  : {Colors.OKGREEN}{scan_metrics['success']}{Colors.ENDC} ({scan_metrics['success']/total_scanned*100:.1f}%)" if total_scanned else " Successful (UUID): 0")
+    print(f" Failed Submissions : {Colors.FAIL if scan_metrics['failed'] else Colors.OKGREEN}{scan_metrics['failed']}{Colors.ENDC} ({scan_metrics['failed']/total_scanned*100:.1f}%)" if total_scanned else " Failed Submissions: 0")
+    if args.report or args.export_csv or args.json_log:
+        print(f" Reports Retrieved  : {scan_metrics['reports']}")
+    print(f"{Colors.HEADER}============================================={Colors.ENDC}\n")
 
-        total_scanned = len(urls_to_scan)
-        print(f"\n{Colors.HEADER}============================================={Colors.ENDC}")
-        print(f"{Colors.BOLD} 🏁 SCAN SUBMISSIONS COMPLETED{Colors.ENDC}")
-        print(f"{Colors.HEADER}============================================={Colors.ENDC}")
-        print(f" Total Targets      : {total_scanned}")
-        print(f" Successful (UUID)  : {Colors.OKGREEN}{scan_metrics['success']}{Colors.ENDC} ({scan_metrics['success']/total_scanned*100:.1f}%)" if total_scanned else " Successful (UUID): 0")
-        print(f" Failed Submissions : {Colors.FAIL if scan_metrics['failed'] else Colors.OKGREEN}{scan_metrics['failed']}{Colors.ENDC} ({scan_metrics['failed']/total_scanned*100:.1f}%)" if total_scanned else " Failed Submissions: 0")
-        if args.report or args.export_csv or args.json_log:
-            print(f" Reports Retrieved  : {scan_metrics['reports']}")
-        print(f"{Colors.HEADER}============================================={Colors.ENDC}\n")
-
-        if args.export_csv and all_reports:
-            export_to_csv(all_reports, args.export_csv)
-            
-        if args.json_log and all_reports:
-            export_to_json(all_reports, args.json_log)
-    except KeyboardInterrupt:
-        pbar.close()
-        print(f"\n{Colors.WARNING}[!] Scan execution interrupted by user (Ctrl+C). Exiting cleanly...{Colors.ENDC}")
+    if args.export_csv and all_reports:
+        export_to_csv(all_reports, args.export_csv)
+        
+    if args.json_log and all_reports:
+        export_to_json(all_reports, args.json_log)
 
 if __name__ == "__main__":
     main()

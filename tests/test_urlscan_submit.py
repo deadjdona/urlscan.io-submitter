@@ -473,15 +473,6 @@ class TestUrlscanSubmit(unittest.TestCase):
         mock_file.assert_called_once_with("test_output.csv", mode='w', newline='', encoding='utf-8')
         self.assertEqual(mock_csv.return_value.writerow.call_count, 3)
 
-    @patch('os.makedirs')
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('csv.writer')
-    def test_export_to_csv_nested_dir(self, mock_csv, mock_file, mock_makedirs):
-        reports = [{"task": {"url": "https://test.com"}}]
-        export_to_csv(reports, "nested/path/output.csv")
-        mock_makedirs.assert_called_once_with("nested/path", exist_ok=True)
-        mock_file.assert_called_once_with("nested/path/output.csv", mode='w', newline='', encoding='utf-8')
-
     @patch('builtins.open', side_effect=IOError("Disk write error"))
     def test_export_to_csv_error(self, mock_file):
         export_to_csv([{}], "invalid.csv")
@@ -493,15 +484,6 @@ class TestUrlscanSubmit(unittest.TestCase):
         export_to_json(reports, "test_output.json")
         mock_file.assert_called_once_with("test_output.json", mode='w', encoding='utf-8')
         mock_json_dump.assert_called_once_with(reports, mock_file(), indent=4)
-
-    @patch('os.makedirs')
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('json.dump')
-    def test_export_to_json_nested_dir(self, mock_json_dump, mock_file, mock_makedirs):
-        reports = [{"uuid": "u1"}]
-        export_to_json(reports, "nested/path/output.json")
-        mock_makedirs.assert_called_once_with("nested/path", exist_ok=True)
-        mock_file.assert_called_once_with("nested/path/output.json", mode='w', encoding='utf-8')
 
     @patch('builtins.open', side_effect=IOError("Disk write error"))
     def test_export_to_json_error(self, mock_file):
@@ -783,30 +765,6 @@ class TestUrlscanSubmit(unittest.TestCase):
         submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
         self.assertIn("https://example.com", submitted_urls)
         self.assertIn("https://123.21.33.22/", submitted_urls)
-
-    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
-    @patch('urlscan_submit.submit_to_urlscan', side_effect=Exception("Simulated unexpected thread failure"))
-    @patch('time.sleep')
-    def test_main_worker_thread_exception(self, mock_sleep, mock_submit, mock_user_info):
-        cli_args = ['urlscan_submit.py', '-d', 'example.com']
-        with patch('sys.argv', cli_args):
-            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
-                with patch('urlscan_submit.load_config', return_value={}):
-                    with patch('urlscan_submit.print') as mock_print:
-                        main()
-                        mock_print.assert_any_call("\x1b[91m[-] Worker thread error: Simulated unexpected thread failure\x1b[0m")
-
-    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
-    @patch('urlscan_submit.submit_to_urlscan', side_effect=KeyboardInterrupt)
-    @patch('time.sleep')
-    def test_main_keyboard_interrupt(self, mock_sleep, mock_submit, mock_user_info):
-        cli_args = ['urlscan_submit.py', '-d', 'example.com']
-        with patch('sys.argv', cli_args):
-            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
-                with patch('urlscan_submit.load_config', return_value={}):
-                    with patch('urlscan_submit.print') as mock_print:
-                        main()
-                        mock_print.assert_any_call("\n\x1b[93m[!] Scan execution interrupted by user (Ctrl+C). Exiting cleanly...\x1b[0m")
 
     def test_module_main_invocation(self):
         import runpy

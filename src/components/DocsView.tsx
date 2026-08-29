@@ -197,7 +197,7 @@ export default function DocsView() {
             </p>
             <div className="space-y-2 text-xs">
               <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50 border border-gray-200">
-                <span className="font-bold text-blue-600 font-mono">1</span>
+                <span className="font-bold text-blue-600 font-mono">1. 🔑</span>
                 <div>
                   <strong className="text-gray-900 block">Explicit Key File CLI Argument</strong>
                   <code className="text-gray-600 text-[11px] font-mono">urlscan-submit -k /path/to/key.txt</code>
@@ -205,7 +205,7 @@ export default function DocsView() {
               </div>
 
               <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50 border border-gray-200">
-                <span className="font-bold text-blue-600 font-mono">2</span>
+                <span className="font-bold text-blue-600 font-mono">2. ⚙️</span>
                 <div>
                   <strong className="text-gray-900 block">Configuration File</strong>
                   <span className="text-gray-600">Defined in <code className="font-mono text-[11px]">.urlscan-config.json</code> or <code className="font-mono text-[11px]">.urlscan-config.yaml</code> in CWD or Home dir.</span>
@@ -213,7 +213,7 @@ export default function DocsView() {
               </div>
 
               <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50 border border-gray-200">
-                <span className="font-bold text-blue-600 font-mono">3</span>
+                <span className="font-bold text-blue-600 font-mono">3. 🌐</span>
                 <div>
                   <strong className="text-gray-900 block">Environment Variable</strong>
                   <code className="text-gray-600 text-[11px] font-mono">export URLSCAN_API_KEY="your-key"</code>
@@ -221,7 +221,7 @@ export default function DocsView() {
               </div>
 
               <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-gray-50 border border-gray-200">
-                <span className="font-bold text-blue-600 font-mono">4</span>
+                <span className="font-bold text-blue-600 font-mono">4. 📄</span>
                 <div>
                   <strong className="text-gray-900 block">Local Text File Fallback</strong>
                   <span className="text-gray-600">Checks for a file named <code className="font-mono text-[11px]">./api_key.txt</code> in the current directory.</span>
