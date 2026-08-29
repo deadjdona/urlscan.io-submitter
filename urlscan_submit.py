@@ -1,11 +1,31 @@
 """
-urlscan-submitter: Automated reconnaissance & rate-limit resilient URL scanner
+========================================================================================
+ urlscan-submitter: Automated Reconnaissance & Rate-Limit Resilient Security Scanner
+========================================================================================
 
-This module submits URLs to urlscan.io for security scanning with built-in support for:
-- Rate limit handling via exponential backoff
-- Bulk submission from CSV files, plain text, or YAML config
-- Subdomain enumeration with three intensity levels (-x, -xx, -xxx)
-- Flexible output formats (JSON, CSV, TXT)
+Core Architecture & Capabilities:
+  1. Multi-Vector Target Generation:
+     - Generates Cartesian matrices combining Protocols (HTTP/HTTPS), Subdomains
+       (root/www), Common Infrastructure Subdomains (-x, -xx, -xxx, or custom wordlists),
+       and live DNS-resolved IPv4 addresses (-I).
+  2. Intelligent Concurrency & Thread Pool Management:
+     - Dispatches requests across worker threads (ThreadPoolExecutor) with a dynamic
+       visual progress HUD (tqdm or built-in SimpleProgressBar fallback).
+  3. Smart Rate-Limit Handling & Evasion:
+     - Automatically parses `X-Rate-Limit-Reset-After` headers returned by urlscan.io
+       and applies mathematical exponential backoff to eliminate dropped requests.
+  4. Dynamic Contextual Auto-Tagging:
+     - Attaches 5+ rich metadata tags with emojis per submission (transport security,
+       TLD, apex domain, functional subdomain role, reconnaissance intensity, source file).
+  5. Deep Recursive Reconnaissance Engine:
+     - Inspects completed scan reports (DOM links, network requests, contacted domains/URLs)
+       and recursively queues discovered links up to user-configured depth (-R / --recursive).
+  6. Smart DNS Resolution Pre-Check & Failure Caching:
+     - Local socket DNS pre-validation (-D) and runtime HTTP 400 DNS Error caching to
+       eliminate redundant submissions of unresolvable domains.
+  7. Multi-Format Reporting & SIEM Ingestion:
+     - Formatted ASCII summary terminal tables, CSV exports (-e), and raw JSON logs (-j).
+========================================================================================
 """
 
 import argparse
@@ -21,7 +41,7 @@ import urllib.request
 import urllib.error
 from typing import List, Dict, Optional, Any, Union, Set
 
-# Ensure UTF-8 output encoding across Windows / Unix terminals
+# Ensure UTF-8 output encoding across Windows and Unix terminals
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -29,18 +49,24 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+# Optional YAML configuration parser support
 try:
     import yaml
 except ImportError:
     yaml = None
 
+# Optional rich progress bar library (gracefully falls back to SimpleProgressBar)
 try:
     from tqdm import tqdm
 except ImportError:
     tqdm = None
 
-# ANSI color codes for terminal output formatting (gracefully degrades if not supported)
+# ==============================================================================
+# SECTION 1: GLOBAL CONSTANTS, ANSI FORMATTING, & ASCII BRANDING
+# ==============================================================================
+
 class Colors:
+    """ANSI color codes for formatted terminal output (auto-degrades gracefully)."""
     HEADER: str = '\033[95m'
     OKBLUE: str = '\033[94m'
     OKCYAN: str = '\033[96m'
@@ -51,7 +77,7 @@ class Colors:
     BOLD: str = '\033[1m'
     UNDERLINE: str = '\033[4m'
 
-# ASCII Art Brand Logo (Old-School BBS/NFO Style)
+# ASCII Art Brand Logo (Old-School BBS / NFO Style)
 ASCII_LOGO: str = r"""
  ____________________________________________________________________
 /\                                                                   \
@@ -74,12 +100,12 @@ ASCII_LOGO: str = r"""
 """
 
 def print_banner() -> None:
-    """Prints the application ASCII logo banner."""
+    """Prints the application ASCII logo banner to the console."""
     print(f"{Colors.OKCYAN}{ASCII_LOGO}{Colors.ENDC}")
 
-# --- PROGRESS BAR SUPPORT ---
-# Implements a fallback ASCII progress bar when tqdm is unavailable
-# Ensures consistent progress reporting across environments
+# ==============================================================================
+# SECTION 2: PROGRESS BARS & THREAD-SAFE CONSOLE I/O
+# ==============================================================================
 class SimpleProgressBar:
     """Lightweight fallback ASCII progress bar used when tqdm is not installed."""
     def __init__(self, total: int, desc: str = "Scan Submissions", width: int = 30):
@@ -139,11 +165,13 @@ def _safe_print(*args: Any, **kwargs: Any) -> None:
 
 print = _safe_print
 
-# --- RECONNAISSANCE DICTIONARIES ---
-# These lists are used when the user provides an exploratory flag (-x, -xx, -xxx).
-# They act as the "y-axis" in our Cartesian matrix generation.
+# ==============================================================================
+# SECTION 3: RECONNAISSANCE SUBDOMAIN DICTIONARIES & INTENSITY LEVELS
+# ==============================================================================
+# These wordlists define common attack surface infrastructure subdomains.
+# They are crossed with user-supplied targets during Cartesian matrix generation.
 
-# Basic 20 subdomains. Used by `-x` / `--explore`
+# Level 1 Recon (-x / --explore): 20 common service endpoints
 COMMON_SUBDOMAINS: List[str] = [
     "mail", "ftp", "webmail", "smtp", "pop", "imap",
     "cpanel", "admin", "dev", "test", "stage", "blog",
@@ -151,7 +179,7 @@ COMMON_SUBDOMAINS: List[str] = [
     "shop", "store", "support", "m"
 ]
 
-# Deeper 60+ subdomains (Includes COMMON). Used by `-xx` / `--deep-explore`
+# Level 2 Deep Recon (-xx / --deep-explore): 60+ critical authentication & DevOps endpoints
 DEEP_SUBDOMAINS: List[str] = COMMON_SUBDOMAINS + [
     "auth", "login", "secure", "app", "dashboard", "billing", 
     "payment", "status", "help", "docs", "kb", "wiki", "forum", 
@@ -161,7 +189,7 @@ DEEP_SUBDOMAINS: List[str] = COMMON_SUBDOMAINS + [
     "git", "svn", "jira", "confluence", "jenkins", "gitlab", "stats"
 ]
 
-# Massive 140+ subdomains (Includes DEEP). Used by `-xxx` / `--massive-explore`
+# Level 3 Massive Recon (-xxx / --massive-explore): 140+ enterprise, cloud, DB & regional endpoints
 MASSIVE_SUBDOMAINS: List[str] = DEEP_SUBDOMAINS + [
     "en", "us", "uk", "fr", "de", "ru", "es", "it", "jp", "cn", "br", "au",
     "metrics", "grafana", "prometheus", "kibana", "elastic", "splunk", "syslog",
@@ -175,6 +203,10 @@ MASSIVE_SUBDOMAINS: List[str] = DEEP_SUBDOMAINS + [
     "mail2", "mx", "mx1", "mx2", "smtp1", "smtp2", "ns1", "ns2", "ns3", "ns4",
     "cdn1", "cdn2", "cdn3", "img", "img1", "img2", "img3", "static1", "static2"
 ]
+
+# ==============================================================================
+# SECTION 4: DOMAIN, IP, & DNS VALIDATION / RESOLUTION UTILITIES
+# ==============================================================================
 
 def is_valid_domain(domain: str) -> bool:
     """
@@ -289,6 +321,10 @@ def extract_apex_domain(hostname: str) -> Optional[str]:
         return ".".join(parts[-2:]).lower()
     return None
 
+# ==============================================================================
+# SECTION 5: SMART CONTEXTUAL AUTO-TAGGING ENGINE
+# ==============================================================================
+
 def generate_tags_for_url(
     url: str,
     user_tags: Optional[List[str]] = None,
@@ -300,31 +336,43 @@ def generate_tags_for_url(
 ) -> List[str]:
     """
     Generates rich contextual tags (5+ tags with emojis) for each URL submission:
-    - User-defined custom tags
-    - Protocol scheme (🔒-https or 🔓-http)
-    - IP indicator (📌-ip, 🌐-ipv4) or Domain/TLD indicators (🏷️-com, 🎯-apex.com, 🏢-subdomain)
-    - Source and recon context (📁-list-name, 🔍-explore, 🔎-resolved-ip, 🤖-urlscan-submit)
+    - User-defined custom tags (highest priority)
+    - Transport scheme (🔒-https or 🔓-http)
+    - IP indicator (📌-ip, 🌐-ipv4, 🎯-direct-ip, 🔎-resolved-ip)
+    - Domain taxonomy (🏷️-com, 🎯-example.com, 🏢-sub-api, 🎯-apex-domain)
+    - Reconnaissance mode (🔍-explore, 🤿-deep-recon, 🌌-massive-recon, 📖-wordlist)
+    - Source dataset (📁-filename)
     - Recursive crawl depth (🕸️-depth-1, 🕸️-recursive)
+    - Tool signature (🤖-urlscan-submit)
     
+    Args:
+        url (str): The target submission URL.
+        user_tags (list, optional): Custom tags passed via CLI (--tags) or config.
+        parent_domain (str, optional): The parent origin domain if this target was derived.
+        source_file (str, optional): Input file path if loaded via -f / --file.
+        explore_mode (str, optional): Recon intensity ('explore', 'deep', 'massive', 'wordlist').
+        is_resolved_ip (bool): True if this IP was resolved from a subdomain via -I.
+        recursion_depth (int): Current recursion level (0 = seed, 1+ = recursive).
+        
     Returns:
-        List[str]: Up to 10 unique, emoji-enhanced tags.
+        List[str]: Up to 10 unique, emoji-enhanced tags adhering to urlscan.io tag limits.
     """
     tags: List[str] = []
 
-    # 1. User-defined tags (highest priority)
+    # 1. User-defined custom tags (highest priority)
     if user_tags:
         for t in user_tags:
             clean_t = t.strip()
             if clean_t and clean_t not in tags:
                 tags.append(clean_t)
 
-    # 2. Protocol Scheme tag
+    # 2. Protocol Transport Scheme tag
     if url.startswith("https://"):
         tags.append("🔒-https")
     elif url.startswith("http://"):
         tags.append("🔓-http")
 
-    # 3. Parse Hostname / IP
+    # 3. Hostname and IP Analysis
     clean_host = url.replace("https://", "").replace("http://", "").rstrip("/")
     if "/" in clean_host:
         clean_host = clean_host.split("/")[0]
@@ -365,7 +413,7 @@ def generate_tags_for_url(
         if apex:
             tags.append(f"🎯-{apex}")
 
-        # Subdomain tag (e.g., 'mail', 'api', 'www')
+        # Subdomain role tag (e.g., 'mail', 'api', 'admin')
         host_parts = clean_host.split(".")
         if len(host_parts) > 2:
             sub = host_parts[0].lower()
@@ -375,7 +423,7 @@ def generate_tags_for_url(
 
         tags.append("🌐-hostname")
 
-    # 4. Source / Recon Mode tags
+    # 4. Source Dataset & Reconnaissance Mode Context
     if source_file:
         base_name = os.path.splitext(os.path.basename(source_file))[0]
         clean_name = "".join(c for c in base_name if c.isalnum() or c in "-_")
@@ -392,33 +440,37 @@ def generate_tags_for_url(
         elif explore_mode == "wordlist":
             tags.append("📖-wordlist")
 
-    # 5. Recursive Crawl tags
+    # 5. Recursive Crawl Depth Tags
     if recursion_depth > 0:
         tags.append(f"🕸️-depth-{recursion_depth}")
         tags.append("🕸️-recursive")
 
-    # 6. Automation engine tag
+    # 6. Tool Signature Identifier
     tags.append("🤖-urlscan-submit")
 
-    # Deduplicate while preserving order and limit to max 10 tags
+    # Deduplicate while preserving insertion order and cap at urlscan.io 10-tag limit
     unique_tags = list(dict.fromkeys(tags))
     return unique_tags[:10]
+
+# ==============================================================================
+# SECTION 6: SCAN REPORT TELEMETRY & LINK EXTRACTION ENGINE
+# ==============================================================================
 
 def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
     """
     Extracts linked domains and hostnames discovered during a urlscan.io scan.
     
-    Inspects:
-    - DOM links (report['data']['links'])
-    - Contacted domains list (report['lists']['domains'])
-    - Contacted URLs list (report['lists']['urls'])
-    - Network requests (report['data']['requests'])
+    Navigates and parses:
+    1. DOM links (report['data']['links']): Anchor tags and hyperlinked pages.
+    2. Network requests (report['data']['requests']): Sub-resources, APIs, and CDN URLs.
+    3. Contacted domains list (report['lists']['domains']): Contacted external domains.
+    4. Contacted URLs list (report['lists']['urls']): Contacted external endpoints.
     
     Args:
         report (dict): The full scan report JSON from urlscan.io.
         
     Returns:
-        List[str]: Unique, valid domain names and IP addresses discovered in the scan.
+        List[str]: Unique, normalized domain names and IP addresses discovered in the report.
     """
     if not report or not isinstance(report, dict):
         return []
@@ -496,6 +548,10 @@ def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
                     discovered.add(clean)
 
     return sorted(discovered)
+
+# ==============================================================================
+# SECTION 7: URLSCAN.IO REST API INTERFACE (SUBMISSION & REPORT POLLING)
+# ==============================================================================
 
 def submit_to_urlscan(
     url: str, 
@@ -706,6 +762,10 @@ def get_scan_report(uuid: str, api_key: str, max_wait: int = 60) -> Optional[Dic
     print(f"{Colors.WARNING}[-] Timed out waiting for scan to complete.{Colors.ENDC}")
     return None
 
+# ==============================================================================
+# SECTION 8: REPORT EXPORTERS & SUMMARY FORMATTERS (CSV, RAW JSON, TERMINAL)
+# ==============================================================================
+
 def print_summary(report: Optional[Dict[str, Any]]) -> None:
     """
     Prints a formatted summary of the scan results to the console.
@@ -792,6 +852,10 @@ def export_to_json(reports: List[Dict[str, Any]], filename: str) -> None:
     except Exception as e:
         print(f"{Colors.FAIL}[-] Error writing JSON to {filename}: {str(e)}{Colors.ENDC}")
 
+# ==============================================================================
+# SECTION 9: CONFIGURATION MANAGEMENT & CREDENTIAL RESOLUTION
+# ==============================================================================
+
 def load_config(config_arg: Optional[str] = None) -> Dict[str, Any]:
     """
     Loads configuration from a JSON or YAML file.
@@ -839,6 +903,10 @@ def load_config(config_arg: Optional[str] = None) -> Dict[str, Any]:
                 print(f"{Colors.FAIL}[-] Error reading config {path}: {e}{Colors.ENDC}")
     return config
 
+# ==============================================================================
+# SECTION 10: USER PROFILE & API KEY AUTHENTICATION VALIDATION
+# ==============================================================================
+
 def get_user_info(api_key: str) -> Optional[Dict[str, Any]]:
     """
     Fetches the authenticated user's information using the API key.
@@ -872,6 +940,10 @@ def get_user_info(api_key: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         print(f"{Colors.FAIL}[-] Error fetching user info: {str(e)}{Colors.ENDC}")
     return None
+
+# ==============================================================================
+# SECTION 11: CLI ARGUMENT PARSER & DISPATCH ORCHESTRATION (MAIN)
+# ==============================================================================
 
 def main() -> None:
     """
@@ -1180,6 +1252,18 @@ configuration & api key priority:
     unresolvable_hosts: Set[str] = set()
     
     def process_url(item: Union[Dict[str, Any], str], depth: int = 0):
+        """
+        Worker task: processes, validates, auto-tags, and submits a single target item.
+        
+        Workflow:
+          1. Extract clean hostname / IP.
+          2. Check runtime unresolvable cache (skip immediately if known DNS failure).
+          3. Perform fast local DNS pre-check if -D / --dns-precheck was requested.
+          4. Dynamically generate 5+ contextual tags (with emojis).
+          5. POST to urlscan.io /api/v1/scan endpoint.
+          6. Optionally poll result report if -r, -e, -j, or recursive crawling is active.
+          7. Enforce 2.0s delay floor to prevent client-side rate limit spikes.
+        """
         if isinstance(item, str):
             item = {"url": item, "parent_domain": None, "is_resolved_ip": False}
         url = item["url"]
@@ -1190,13 +1274,13 @@ configuration & api key priority:
             print(f"{Colors.WARNING}[-] Skipping {url} (domain '{host}' failed DNS resolution / unresolvable){Colors.ENDC}")
             return False, None
 
-        # 2. Fast local DNS pre-check if requested
+        # 2. Fast local DNS pre-check if requested via -D / --dns-precheck
         if args.dns_precheck and not can_resolve_dns(host):
             unresolvable_hosts.add(host)
             print(f"{Colors.WARNING}[-] Skipping {url} (DNS pre-check failed: domain '{host}' cannot be resolved){Colors.ENDC}")
             return False, None
         
-        # Dynamically generate rich tags (5+ tags with emojis) for this specific target
+        # 3. Dynamically generate rich tags (5+ tags with emojis) for this specific target
         item_tags = generate_tags_for_url(
             url=url,
             user_tags=user_custom_tags,
@@ -1207,6 +1291,7 @@ configuration & api key priority:
             recursion_depth=depth
         )
 
+        # 4. Dispatch scan submission to urlscan.io REST API
         print(f"{Colors.OKCYAN}[*] Submitting {url} ...{Colors.ENDC}")
         result = submit_to_urlscan(
             url, 
@@ -1228,19 +1313,19 @@ configuration & api key priority:
             print(f"{Colors.OKGREEN}[+] Success! Scan UUID: {uuid}{Colors.ENDC}")
             print(f"{Colors.OKGREEN}[+] Result Link: {Colors.UNDERLINE}https://urlscan.io/result/{uuid}/{Colors.ENDC}")
             
-            # Poll scan report if summary requested, exports configured, or needed for recursive link extraction
+            # 5. Poll scan report if summary requested, exports configured, or needed for recursive link extraction
             if args.report or args.export_csv or args.json_log or (args.recursive > 0 and depth < args.recursive):
                 report_data = get_scan_report(uuid, api_key)
                 if args.report:
                     print_summary(report_data)
         
-        # The delay acts as our floor padding to avoid aggressive 429 bursts on our side.
-        # It guarantees we always wait at least 2.0s, unless the user provided a longer --delay.
+        # 6. Enforce safety delay floor to avoid aggressive 429 bursts on client side
         time.sleep(max(2.0, args.delay))
         return is_success, report_data
         
     import concurrent.futures
 
+    # Initialize recursive crawler state
     current_depth = 0
     max_depth = max(0, args.recursive)
     current_items = unique_target_items
@@ -1249,13 +1334,18 @@ configuration & api key priority:
     total_urls_submitted_count = 0
 
     try:
+        # Multi-Level Recursion Loop: Iterates from Depth 0 (seeds) up to max_depth
         while current_items and current_depth <= max_depth:
             if max_depth > 0:
                 print(f"\n{Colors.OKCYAN}[*] 🕸️ === RECURSION DEPTH LEVEL {current_depth}/{max_depth} ({len(current_items)} targets) ==={Colors.ENDC}")
 
-            pbar = create_progress_bar(total=len(current_items), desc=f"Scanning (Depth {current_depth})" if max_depth > 0 else "Submitting URLs")
+            pbar = create_progress_bar(
+                total=len(current_items), 
+                desc=f"Scanning (Depth {current_depth})" if max_depth > 0 else "Submitting URLs"
+            )
             level_reports = []
 
+            # Concurrency: Dispatch worker threads via ThreadPoolExecutor
             with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
                 futures = [executor.submit(process_url, item, current_depth) for item in current_items]
                 
@@ -1266,6 +1356,7 @@ configuration & api key priority:
                         is_success, res = False, None
                         print(f"{Colors.FAIL}[-] Worker thread encountered exception: {exc}{Colors.ENDC}")
 
+                    # Update real-time scan metrics
                     if is_success:
                         scan_metrics["success"] += 1
                     else:
@@ -1277,6 +1368,7 @@ configuration & api key priority:
                             all_reports.append(res)
                             scan_metrics["reports"] += 1
                         
+                    # Update progress bar metrics HUD
                     postfix = {
                         "ok": scan_metrics["success"],
                         "err": scan_metrics["failed"]
@@ -1290,11 +1382,11 @@ configuration & api key priority:
             pbar.close()
             total_urls_submitted_count += len(current_items)
 
-            # If we've reached max recursion depth or recursion is not enabled, finish
+            # If we've reached max recursion depth or recursion is not enabled, terminate
             if current_depth >= max_depth:
                 break
 
-            # Extract linked domains from this level's scan reports
+            # Extract linked/contacted domains from this level's completed scan reports
             discovered_for_next_level: List[str] = []
             for rep in level_reports:
                 linked_doms = extract_linked_domains(rep)
@@ -1302,10 +1394,11 @@ configuration & api key priority:
                     if d not in visited_domains and d not in discovered_for_next_level:
                         discovered_for_next_level.append(d)
 
-            # Cap discovered links per scan cycle if max_links configured
+            # Cap discovered links per scan cycle if max_links configured to prevent fan-out explosion
             if args.max_links and args.max_links > 0:
                 discovered_for_next_level = discovered_for_next_level[:args.max_links]
 
+            # Stop if no new unvisited linked domains were discovered
             if not discovered_for_next_level:
                 print(f"\n{Colors.OKBLUE}[*] 🕸️ No new unvisited linked domains discovered from scan reports. Stopping recursive crawl.{Colors.ENDC}")
                 break
@@ -1315,7 +1408,7 @@ configuration & api key priority:
                 print(f"    -> {d}")
                 visited_domains.add(d)
 
-            # Build next level target items
+            # Assemble target items for the next recursion depth level
             next_items: List[Dict[str, Any]] = []
             for next_dom in discovered_for_next_level:
                 is_ip = False
@@ -1352,6 +1445,7 @@ configuration & api key priority:
     except KeyboardInterrupt:
         print(f"\n{Colors.WARNING}[!] Scan interrupted by user (Ctrl+C). Generating summary report...{Colors.ENDC}")
 
+    # Display final execution summary table
     total_scanned = total_urls_submitted_count
     print(f"\n{Colors.HEADER}============================================={Colors.ENDC}")
     print(f"{Colors.BOLD} 🏁 SCAN SUBMISSIONS COMPLETED{Colors.ENDC}")
@@ -1365,9 +1459,11 @@ configuration & api key priority:
         print(f" Max Recursion Depth: {current_depth}/{max_depth}")
     print(f"{Colors.HEADER}============================================={Colors.ENDC}\n")
 
+    # Export aggregated reports to CSV if requested
     if args.export_csv and all_reports:
         export_to_csv(all_reports, args.export_csv)
         
+    # Export raw aggregated JSON payloads if requested
     if args.json_log and all_reports:
         export_to_json(all_reports, args.json_log)
 
