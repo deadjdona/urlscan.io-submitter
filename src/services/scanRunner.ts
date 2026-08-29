@@ -71,12 +71,119 @@ export const MASSIVE_SUBDOMAINS: string[] = [
  * Checks if a string is a valid IPv4 address
  */
 export function isIPv4Address(str: string): boolean {
-  const parts = str.trim().split('.');
+  const clean = str.trim().replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '').split(':')[0];
+  const parts = clean.split('.');
   if (parts.length !== 4) return false;
   return parts.every((p) => {
     const n = parseInt(p, 10);
     return !isNaN(n) && n >= 0 && n <= 255 && p === String(n);
   });
+}
+
+/**
+ * Extracts top-level domain (e.g., 'com', 'org', 'io') from hostname
+ */
+export function extractTld(hostname: string): string | null {
+  const clean = hostname.trim().replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '').split(':')[0];
+  if (isIPv4Address(clean)) return null;
+  const parts = clean.split('.');
+  if (parts.length >= 2) {
+    return parts[parts.length - 1].toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * Extracts apex domain (e.g., 'example.com') from hostname
+ */
+export function extractApexDomain(hostname: string): string | null {
+  const clean = hostname.trim().replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '').split(':')[0];
+  if (isIPv4Address(clean)) return null;
+  const parts = clean.split('.');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('.').toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * Generates rich contextual tags (5+ tags with emojis) for each URL submission:
+ * - User-defined tags
+ * - Protocol scheme (🔒-https or 🔓-http)
+ * - IP indicators (📌-ip, 🌐-ipv4, 🎯-direct-ip) or Domain/TLD indicators (🏷️-com, 🎯-apex.com, 🏢-subdomain)
+ * - Exploration & engine context (🔍-explore, 🤖-urlscan-submit)
+ */
+export function generateTagsForUrl(
+  url: string,
+  userTags: string[] = [],
+  exploreMode?: ExploreMode,
+  sourceName?: string
+): string[] {
+  const tags: string[] = [];
+
+  // 1. User-defined tags (highest priority)
+  for (const t of userTags) {
+    const clean = t.trim();
+    if (clean && !tags.includes(clean)) {
+      tags.push(clean);
+    }
+  }
+
+  // 2. Protocol Scheme tag
+  if (url.startsWith('https://')) {
+    tags.push('🔒-https');
+  } else if (url.startsWith('http://')) {
+    tags.push('🔓-http');
+  }
+
+  // 3. Parse Hostname / IP
+  const cleanHost = url.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '').split(':')[0];
+  const isIp = isIPv4Address(cleanHost);
+
+  if (isIp) {
+    tags.push('📌-ip');
+    tags.push('🌐-ipv4');
+    tags.push('🎯-direct-ip');
+  } else {
+    // TLD tag (e.g. '🏷️-com', '🏷️-org')
+    const tld = extractTld(cleanHost);
+    if (tld) {
+      tags.push(`🏷️-${tld}`);
+    }
+
+    // Apex domain tag
+    const apex = extractApexDomain(cleanHost);
+    if (apex) {
+      tags.push(`🎯-${apex}`);
+    }
+
+    // Subdomain tag
+    const parts = cleanHost.split('.');
+    if (parts.length > 2) {
+      tags.push(`🏢-sub-${parts[0].toLowerCase()}`);
+    } else if (parts.length === 2) {
+      tags.push('🎯-apex-domain');
+    }
+
+    tags.push('🌐-hostname');
+  }
+
+  // 4. Recon Mode / Source
+  if (sourceName) {
+    tags.push(`📁-${sourceName.replace(/[^a-zA-Z0-9_-]/g, '')}`);
+  }
+
+  if (exploreMode && exploreMode !== 'none') {
+    if (exploreMode === 'massive') tags.push('🌌-massive-recon');
+    else if (exploreMode === 'deep') tags.push('🤿-deep-recon');
+    else if (exploreMode === 'basic') tags.push('🔍-explore');
+  }
+
+  // 5. Engine tag
+  tags.push('🤖-urlscan-submit');
+
+  // Deduplicate while preserving order and limit to max 10
+  return Array.from(new Set(tags)).slice(0, 10);
 }
 
 /**
@@ -605,6 +712,12 @@ export class ClientScanRunner {
       return v.toString(16);
     });
 
+    const dynamicTags = generateTagsForUrl(
+      targetUrl,
+      this.config.tags || [],
+      this.config.explore
+    );
+
     return {
       id: Math.random().toString(36).substring(2, 9),
       target: domain,
@@ -617,7 +730,7 @@ export class ClientScanRunner {
       timestamp: new Date().toLocaleTimeString(),
       workerId,
       visibility: this.config.visibility,
-      tags: this.config.tags,
+      tags: dynamicTags,
     };
   }
 
@@ -643,59 +756,63 @@ export class ClientScanRunner {
       'Content-Type': 'application/json',
     };
 
-   // Add API key if configured
-   if (this.config.apiKey) {
-     headers['API-Key'] = this.config.apiKey;
-   }
+    // Add API key if configured
+    if (this.config.apiKey) {
+      headers['API-Key'] = this.config.apiKey;
+    }
 
-   // Build scan payload with optional metadata
-   const payload: Record<string, any> = {
-     url: targetUrl,
-     visibility: this.config.visibility,
-   };
+    const dynamicTags = generateTagsForUrl(
+      targetUrl,
+      this.config.tags || [],
+      this.config.explore
+    );
 
-   if (this.config.tags && this.config.tags.length > 0) {
-     payload.tags = this.config.tags;
-   }
-   if (this.config.country) {
-     payload.country = this.config.country;
-   }
-   if (this.config.userAgent) {
-     payload.customagent = this.config.userAgent;
-   }
-   if (this.config.referer) {
-     payload.referer = this.config.referer;
-   }
+    // Build scan payload with optional metadata
+    const payload: Record<string, any> = {
+      url: targetUrl,
+      visibility: this.config.visibility,
+      tags: dynamicTags,
+    };
 
-   try {
-     // POST to real urlscan.io API
-     const res = await fetch('https://urlscan.io/api/v1/scan/', {
-       method: 'POST',
-       headers,
-       body: JSON.stringify(payload),
-       signal: this.abortController?.signal,
-     });
+    if (this.config.country) {
+      payload.country = this.config.country;
+    }
+    if (this.config.userAgent) {
+      payload.customagent = this.config.userAgent;
+    }
+    if (this.config.referer) {
+      payload.referer = this.config.referer;
+    }
 
-     const latencyMs = Date.now() - startTime;
+    try {
+      // POST to real urlscan.io API
+      const res = await fetch('https://urlscan.io/api/v1/scan/', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: this.abortController?.signal,
+      });
 
-     // 200 OK: Successful submission
-     if (res.status === 200) {
-       const data = await res.json();
-       return {
-         id: Math.random().toString(36).substring(2, 9),
-         target: domain,
-         url: targetUrl,
-         status: 'success',
-         statusCode: 200,
-         uuid: data.uuid,
-         resultUrl: data.result || `https://urlscan.io/result/${data.uuid}/`,
-         latencyMs,
-         timestamp: new Date().toLocaleTimeString(),
-         workerId,
-         visibility: this.config.visibility,
-         tags: this.config.tags,
-       };
-     }
+      const latencyMs = Date.now() - startTime;
+
+      // 200 OK: Successful submission
+      if (res.status === 200) {
+        const data = await res.json();
+        return {
+          id: Math.random().toString(36).substring(2, 9),
+          target: domain,
+          url: targetUrl,
+          status: 'success',
+          statusCode: 200,
+          uuid: data.uuid,
+          resultUrl: data.result || `https://urlscan.io/result/${data.uuid}/`,
+          latencyMs,
+          timestamp: new Date().toLocaleTimeString(),
+          workerId,
+          visibility: this.config.visibility,
+          tags: dynamicTags,
+        };
+      }
 
      // 429 Rate Limit: Extract backoff time from Retry-After or X-Rate-Limit-Reset-After header
      if (res.status === 429) {

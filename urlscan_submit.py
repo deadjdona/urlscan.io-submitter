@@ -19,7 +19,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 
 # Ensure UTF-8 output encoding across Windows / Unix terminals
 if hasattr(sys.stdout, "reconfigure"):
@@ -230,6 +230,144 @@ def resolve_domain_ips(hostname: str) -> List[str]:
         return [ip for ip in ip_list if ip]
     except (socket.gaierror, socket.herror, OSError):
         return []
+
+def extract_tld(hostname: str) -> Optional[str]:
+    """
+    Extracts the top-level domain (e.g. 'com', 'org', 'io', 'net') from a domain or hostname.
+    Returns None if the hostname is an IP address or does not have a TLD.
+    """
+    clean = hostname.strip().replace("http://", "").replace("https://", "").rstrip("/")
+    if "/" in clean:
+        clean = clean.split("/")[0]
+    if ":" in clean:
+        clean = clean.split(":")[0]
+    parts = clean.split(".")
+    if len(parts) >= 2 and not all(p.isdigit() for p in parts):
+        return parts[-1].lower()
+    return None
+
+def extract_apex_domain(hostname: str) -> Optional[str]:
+    """
+    Extracts the apex domain (e.g. 'example.com') from a domain or hostname.
+    Returns None if the hostname is an IP address.
+    """
+    clean = hostname.strip().replace("http://", "").replace("https://", "").rstrip("/")
+    if "/" in clean:
+        clean = clean.split("/")[0]
+    if ":" in clean:
+        clean = clean.split(":")[0]
+    parts = clean.split(".")
+    if len(parts) >= 2 and not all(p.isdigit() for p in parts):
+        return ".".join(parts[-2:]).lower()
+    return None
+
+def generate_tags_for_url(
+    url: str,
+    user_tags: Optional[List[str]] = None,
+    parent_domain: Optional[str] = None,
+    source_file: Optional[str] = None,
+    explore_mode: Optional[str] = None,
+    is_resolved_ip: bool = False
+) -> List[str]:
+    """
+    Generates rich contextual tags (5+ tags with emojis) for each URL submission:
+    - User-defined custom tags
+    - Protocol scheme (🔒-https or 🔓-http)
+    - IP indicator (📌-ip, 🌐-ipv4) or Domain/TLD indicators (🏷️-com, 🎯-apex.com, 🏢-subdomain)
+    - Source and recon context (📁-list-name, 🔍-explore, 🔎-resolved-ip, 🤖-urlscan-submit)
+    
+    Returns:
+        List[str]: Up to 10 unique, emoji-enhanced tags.
+    """
+    tags: List[str] = []
+
+    # 1. User-defined tags (highest priority)
+    if user_tags:
+        for t in user_tags:
+            clean_t = t.strip()
+            if clean_t and clean_t not in tags:
+                tags.append(clean_t)
+
+    # 2. Protocol Scheme tag
+    if url.startswith("https://"):
+        tags.append("🔒-https")
+    elif url.startswith("http://"):
+        tags.append("🔓-http")
+
+    # 3. Parse Hostname / IP
+    clean_host = url.replace("https://", "").replace("http://", "").rstrip("/")
+    if "/" in clean_host:
+        clean_host = clean_host.split("/")[0]
+    if ":" in clean_host:
+        clean_host = clean_host.split(":")[0]
+
+    is_ip = False
+    try:
+        ipaddress.ip_address(clean_host)
+        is_ip = True
+    except ValueError:
+        is_ip = False
+
+    if is_ip:
+        tags.append("📌-ip")
+        tags.append("🌐-ipv4")
+        if is_resolved_ip:
+            tags.append("🔎-resolved-ip")
+        else:
+            tags.append("🎯-direct-ip")
+
+        # Top-level domain from parent domain if available
+        if parent_domain:
+            tld = extract_tld(parent_domain)
+            if tld:
+                tags.append(f"🏷️-{tld}")
+            apex = extract_apex_domain(parent_domain)
+            if apex:
+                tags.append(f"🎯-{apex}")
+    else:
+        # Domain Target: Extract TLD (e.g. 'com', 'org', 'io')
+        tld = extract_tld(clean_host)
+        if tld:
+            tags.append(f"🏷️-{tld}")
+
+        # Apex Domain tag
+        apex = extract_apex_domain(clean_host)
+        if apex:
+            tags.append(f"🎯-{apex}")
+
+        # Subdomain tag (e.g., 'mail', 'api', 'www')
+        host_parts = clean_host.split(".")
+        if len(host_parts) > 2:
+            sub = host_parts[0].lower()
+            tags.append(f"🏢-sub-{sub}")
+        elif len(host_parts) == 2:
+            tags.append("🎯-apex-domain")
+
+        tags.append("🌐-hostname")
+
+    # 4. Source / Recon Mode tags
+    if source_file:
+        base_name = os.path.splitext(os.path.basename(source_file))[0]
+        clean_name = "".join(c for c in base_name if c.isalnum() or c in "-_")
+        if clean_name:
+            tags.append(f"📁-{clean_name}")
+
+    if explore_mode:
+        if explore_mode == "massive":
+            tags.append("🌌-massive-recon")
+        elif explore_mode == "deep":
+            tags.append("🤿-deep-recon")
+        elif explore_mode == "explore":
+            tags.append("🔍-explore")
+        elif explore_mode == "wordlist":
+            tags.append("📖-wordlist")
+
+    # 5. Automation engine tag
+    tags.append("🤖-urlscan-submit")
+
+    # Deduplicate while preserving order and limit to max 10 tags
+    unique_tags = list(dict.fromkeys(tags))
+    return unique_tags[:10]
 
 def submit_to_urlscan(
     url: str, 
@@ -814,8 +952,8 @@ configuration & api key priority:
     # Ensure no duplicates by casting to a dict (preserves order in Python 3.7+)
     prefixes = list(dict.fromkeys(prefixes))
 
-    urls_to_scan = []
-    resolved_ips = set()
+    target_items: List[Dict[str, Any]] = []
+    resolved_ips: Dict[str, str] = {}  # ip -> parent domain
 
     # 3. Assemble the final Cartesian matrix (including direct IPs and resolved subdomain IPs)
     for domain in domains:
@@ -830,62 +968,60 @@ configuration & api key priority:
         if is_ip:
             # Direct IP submission format: http://123.21.33.22/ and/or https://123.21.33.22/
             for proto in protocols:
-                urls_to_scan.append(f"{proto}{domain}/")
+                target_items.append({
+                    "url": f"{proto}{domain}/",
+                    "parent_domain": None,
+                    "is_resolved_ip": False
+                })
         else:
             for prefix in prefixes:
                 fqdn = f"{prefix}{domain}"
                 for proto in protocols:
-                    urls_to_scan.append(f"{proto}{fqdn}")
+                    target_items.append({
+                        "url": f"{proto}{fqdn}",
+                        "parent_domain": domain,
+                        "is_resolved_ip": False
+                    })
                 
                 if args.resolve_ips:
                     ips = resolve_domain_ips(fqdn)
                     for ip in ips:
-                        resolved_ips.add(ip)
+                        resolved_ips[ip] = domain
 
-    # Append resolved IPs as http://<ip>/ and https://<ip>/ URLs
+    # Append resolved IPs as http://<ip>/ and https://<ip>/ URLs with parent domain context
     if args.resolve_ips and resolved_ips:
         print(f"[*] Resolved {len(resolved_ips)} unique IP address(es) from target subdomains.")
-        for ip in sorted(resolved_ips):
+        for ip, parent_dom in sorted(resolved_ips.items()):
             for proto in protocols:
-                urls_to_scan.append(f"{proto}{ip}/")
+                target_items.append({
+                    "url": f"{proto}{ip}/",
+                    "parent_domain": parent_dom,
+                    "is_resolved_ip": True
+                })
 
-    # Deduplicate while preserving order
-    urls_to_scan = list(dict.fromkeys(urls_to_scan))
+    # Deduplicate while preserving order based on 'url'
+    seen_urls = set()
+    unique_target_items: List[Dict[str, Any]] = []
+    for item in target_items:
+        if item["url"] not in seen_urls:
+            seen_urls.add(item["url"])
+            unique_target_items.append(item)
 
+    urls_to_scan = [item["url"] for item in unique_target_items]
     print(f"\n{Colors.OKCYAN}[*] Generated {len(urls_to_scan)} URL(s) total to scan.{Colors.ENDC}")
 
-    # Prepare tags dynamically
-    tags_list = []
-    
-    # 1. User-defined tags take priority
-    if args.tags:
-        tags_list.extend([t.strip() for t in args.tags.split(",") if t.strip()])
-        
-    # 2. Auto-generated context tags
-    tags_list.append("automated-script")
-    
-    # Tag based on file input name
-    if args.file:
-        base_name = os.path.splitext(os.path.basename(args.file))[0]
-        # Sanitize filename to alphanumeric and dashes for valid tag format
-        clean_name = "".join(c for c in base_name if c.isalnum() or c in "-_")
-        if clean_name:
-            tags_list.append(f"list-{clean_name}")
-            
-    # Tag based on recon modes
-    if args.explore:
-        tags_list.append("recon-explore")
-    if args.deep_explore:
-        tags_list.append("recon-deep")
+    # Determine recon mode
+    recon_mode = None
     if args.massive_explore:
-        tags_list.append("recon-massive")
-    if args.wordlist:
-        tags_list.append("custom-wordlist")
-    if args.resolve_ips:
-        tags_list.append("resolve-ips")
-        
-    # Unique tags, capped at maximum 10 permitted by urlscan.io
-    tags_list = list(dict.fromkeys(tags_list))[:10]
+        recon_mode = "massive"
+    elif args.deep_explore:
+        recon_mode = "deep"
+    elif args.explore:
+        recon_mode = "explore"
+    elif args.wordlist:
+        recon_mode = "wordlist"
+
+    user_custom_tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else None
 
     all_reports = []
     scan_metrics = {
@@ -894,14 +1030,28 @@ configuration & api key priority:
         "reports": 0
     }
     
-    def process_url(url: str):
+    def process_url(item: Union[Dict[str, Any], str]):
+        if isinstance(item, str):
+            item = {"url": item, "parent_domain": None, "is_resolved_ip": False}
+        url = item["url"]
+        
+        # Dynamically generate rich tags (5+ tags with emojis) for this specific target
+        item_tags = generate_tags_for_url(
+            url=url,
+            user_tags=user_custom_tags,
+            parent_domain=item.get("parent_domain"),
+            source_file=args.file,
+            explore_mode=recon_mode,
+            is_resolved_ip=item.get("is_resolved_ip", False)
+        )
+
         print(f"{Colors.OKCYAN}[*] Submitting {url} ...{Colors.ENDC}")
         result = submit_to_urlscan(
             url, 
             api_key, 
             args.visibility, 
             verbose=args.verbose,
-            tags=tags_list,
+            tags=item_tags,
             customagent=args.user_agent,
             referer=args.referer,
             country=args.country
@@ -929,7 +1079,7 @@ configuration & api key priority:
     pbar = create_progress_bar(total=len(urls_to_scan), desc="Submitting URLs")
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(process_url, url) for url in urls_to_scan]
+        futures = [executor.submit(process_url, item) for item in unique_target_items]
         
         for future in concurrent.futures.as_completed(futures):
             is_success, res = future.result()

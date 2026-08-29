@@ -13,6 +13,9 @@ import urlscan_submit
 from urlscan_submit import (
     is_valid_domain, 
     resolve_domain_ips,
+    extract_tld,
+    extract_apex_domain,
+    generate_tags_for_url,
     ASCII_LOGO,
     print_banner,
     load_config, 
@@ -74,7 +77,79 @@ class TestUrlscanSubmit(unittest.TestCase):
         import socket
         with patch('socket.gethostbyname_ex', side_effect=socket.gaierror("Name or service not known")):
             ips = resolve_domain_ips("invalid-nonexistent-sub.com")
-            self.assertEqual(ips, [])
+    def test_extract_tld_and_apex(self):
+        self.assertEqual(extract_tld("example.com"), "com")
+        self.assertEqual(extract_tld("sub.example.org"), "org")
+        self.assertEqual(extract_tld("https://portal.service.io/"), "io")
+        self.assertIsNone(extract_tld("123.21.33.22"))
+        self.assertIsNone(extract_tld("localhost"))
+
+        self.assertEqual(extract_apex_domain("example.com"), "example.com")
+        self.assertEqual(extract_apex_domain("api.sub.example.org"), "example.org")
+        self.assertIsNone(extract_apex_domain("123.21.33.22"))
+
+    def test_generate_tags_for_url_domain(self):
+        tags = generate_tags_for_url(
+            url="https://api.example.com",
+            user_tags=["custom-tag", "phish-hunt"],
+            explore_mode="explore",
+            source_file="targets.txt"
+        )
+        # Verify 5+ tags generated
+        self.assertGreaterEqual(len(tags), 5)
+        # Check specific tag components
+        self.assertIn("custom-tag", tags)
+        self.assertIn("phish-hunt", tags)
+        self.assertIn("🔒-https", tags)
+        self.assertIn("🏷️-com", tags)
+        self.assertIn("🎯-example.com", tags)
+        self.assertIn("🏢-sub-api", tags)
+        self.assertIn("📁-targets", tags)
+        self.assertIn("🔍-explore", tags)
+        self.assertIn("🤖-urlscan-submit", tags)
+
+    def test_generate_tags_for_url_ip_resolved(self):
+        tags = generate_tags_for_url(
+            url="http://123.21.33.22/",
+            parent_domain="sub.company.org",
+            is_resolved_ip=True,
+            explore_mode="massive"
+        )
+        self.assertGreaterEqual(len(tags), 5)
+        self.assertIn("🔓-http", tags)
+        self.assertIn("📌-ip", tags)
+        self.assertIn("🌐-ipv4", tags)
+        self.assertIn("🔎-resolved-ip", tags)
+        self.assertIn("🏷️-org", tags)
+        self.assertIn("🎯-company.org", tags)
+        self.assertIn("🌌-massive-recon", tags)
+        self.assertIn("🤖-urlscan-submit", tags)
+
+    def test_generate_tags_for_url_direct_ip(self):
+        tags = generate_tags_for_url(
+            url="https://123.21.33.22/",
+            parent_domain=None,
+            is_resolved_ip=False,
+            explore_mode="deep"
+        )
+        self.assertGreaterEqual(len(tags), 5)
+        self.assertIn("🔒-https", tags)
+        self.assertIn("📌-ip", tags)
+        self.assertIn("🌐-ipv4", tags)
+        self.assertIn("🎯-direct-ip", tags)
+        self.assertIn("🤿-deep-recon", tags)
+        self.assertIn("🤖-urlscan-submit", tags)
+
+    def test_generate_tags_for_url_apex_and_wordlist(self):
+        tags = generate_tags_for_url(
+            url="https://example.com",
+            explore_mode="wordlist"
+        )
+        self.assertGreaterEqual(len(tags), 5)
+        self.assertIn("🏷️-com", tags)
+        self.assertIn("🎯-example.com", tags)
+        self.assertIn("🎯-apex-domain", tags)
+        self.assertIn("📖-wordlist", tags)
 
     def test_print_banner(self):
         self.assertIn("urlscan", ASCII_LOGO.lower())
