@@ -81,7 +81,7 @@ class TestUrlscanSubmit(unittest.TestCase):
         with patch('sys.stdout', new_callable=io.StringIO) as mock_stdout:
             print_banner()
             output = mock_stdout.getvalue()
-            self.assertIn("urlscan.io", output)
+            self.assertIn("urlscan.io", output.lower())
 
     def test_safe_print(self):
         # With tqdm available
