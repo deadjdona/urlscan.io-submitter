@@ -766,6 +766,32 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertIn("https://example.com", submitted_urls)
         self.assertIn("https://123.21.33.22/", submitted_urls)
 
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-emoji-flags"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
+    @patch('time.sleep')
+    def test_main_with_emoji_flags(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = [
+            'urlscan_submit.py',
+            '-🎯', 'example.com',
+            '-🌐', 'both',
+            '-🏢', 'both',
+            '-🔍',
+            '-🔎',
+            '-🚀', '2'
+        ]
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("http://example.com", submitted_urls)
+        self.assertIn("https://www.example.com", submitted_urls)
+        self.assertIn("http://1.2.3.4/", submitted_urls)
+
     def test_module_main_invocation(self):
         import runpy
         with patch('sys.argv', ['urlscan_submit.py', '-d', 'example.com']):

@@ -620,19 +620,24 @@ def main() -> None:
         epilog="""
 examples:
   # 🎯 Quick single domain scan (defaults to https and root subdomain):
-  urlscan-submit -d example.com
+  urlscan-submit -🎯 example.com
+  (or: urlscan-submit -d example.com)
 
   # 🌐 Submit direct IP address with both HTTP and HTTPS variants:
-  urlscan-submit -d 123.21.33.22 -p both
+  urlscan-submit -🎯 123.21.33.22 -🌐 both
+  (or: urlscan-submit -d 123.21.33.22 -p both)
 
   # 🔎 Recon matrix including exploratory subdomains AND their resolved IP addresses:
-  urlscan-submit -d target.com -p both -s both -x -I
+  urlscan-submit -🎯 target.com -🌐 both -🏢 both -🔍 -🔎
+  (or: urlscan-submit -d target.com -p both -s both -x -I)
 
   # 🚀 High-speed bulk submission from file using 10 concurrent threads:
-  urlscan-submit -f domains.txt -w 10 -I
+  urlscan-submit -📁 domains.txt -🚀 10 -🔎
+  (or: urlscan-submit -f domains.txt -w 10 -I)
 
   # 👻 Private submission with delay floor, custom tags, and CSV summary export:
-  urlscan-submit -f targets.txt -V private --delay 1.5 --tags "incident-404,redteam" -e summary.csv -r
+  urlscan-submit -📁 targets.txt -👻 private -🐢 1.5 -🏷 "incident-404,redteam" -📊 summary.csv -📝
+  (or: urlscan-submit -f targets.txt -V private --delay 1.5 --tags "incident-404,redteam" -e summary.csv -r)
 
 configuration & api key priority:
   1. 🔑 CLI parameter: --api-key-file <path>
