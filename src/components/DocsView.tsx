@@ -140,6 +140,19 @@ export default function DocsView() {
             </div>
 
             <div className="bg-[#0D1117] rounded-xl p-4 text-[12px] font-mono text-gray-300 shadow-inner space-y-4 overflow-x-auto border border-gray-800">
+              <pre className="text-cyan-400 font-mono text-[9px] sm:text-[10.5px] leading-[1.15] select-none border-b border-gray-800/80 pb-3">
+{` _   _ ____  _     ____   ____    _    _   _ 
+| | | |  _ \\| |   / ___| / ___|  / \\  | \\ | |
+| | | | |_) | |   \\___ \\| |     / _ \\ |  \\| |
+| |_| |  _ <| |___ ___) | |___ / ___ \\| |\\  |
+ \\___/|_| \\_\\_____|____/ \\____/_/   \\_\\_| \\_|
+  ____  _   _ ____  __  __ ___ _____ _____ _____ ____  
+ / ___|| | | | __ )|  \\/  |_ _|_   _|_   _| ____|  _ \\ 
+ \\___ \\| | | |  _ \\| |\\/| || |  | |   | | |  _| | |_) |
+  ___) | |_| | |_) | |  | || |  | |   | | | |___|  _ < 
+ |____/ \\___/|____/|_|  |_|___| |_|   |_| |_____|_| \\_\\
+                 v1.2.0 | urlscan.io Automation Engine`}
+              </pre>
               <div>
                 <p className="text-gray-500 mb-1"># 1. Clone repository</p>
                 <p className="text-blue-400">git <span className="text-gray-300">clone https://github.com/deadjdona/urlscan.io-submitter.git</span></p>

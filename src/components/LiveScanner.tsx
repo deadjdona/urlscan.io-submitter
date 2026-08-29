@@ -1281,8 +1281,21 @@ export default function LiveScanner() {
         {/* Tab 2: Terminal Console Log */}
         {activeTab === 'logs' && (
           <div className="p-4 bg-[#0D1117] text-gray-200 font-mono text-xs max-h-96 overflow-y-auto space-y-1">
+            <pre className="text-cyan-400 font-mono text-[8.5px] sm:text-[9.5px] leading-[1.12] select-none border-b border-gray-800 pb-2.5 mb-2">
+{` _   _ ____  _     ____   ____    _    _   _ 
+| | | |  _ \\| |   / ___| / ___|  / \\  | \\ | |
+| | | | |_) | |   \\___ \\| |     / _ \\ |  \\| |
+| |_| |  _ <| |___ ___) | |___ / ___ \\| |\\  |
+ \\___/|_| \\_\\_____|____/ \\____/_/   \\_\\_| \\_|
+  ____  _   _ ____  __  __ ___ _____ _____ _____ ____  
+ / ___|| | | | __ )|  \\/  |_ _|_   _|_   _| ____|  _ \\ 
+ \\___ \\| | | |  _ \\| |\\/| || |  | |   | | |  _| | |_) |
+  ___) | |_| | |_) | |  | || |  | |   | | | |___|  _ < 
+ |____/ \\___/|____/|_|  |_|___| |_|   |_| |_____|_| \\_\\
+                 v1.2.0 | urlscan.io Automation Engine`}
+            </pre>
             {logs.length === 0 ? (
-              <div className="text-gray-500 py-6 text-center">No terminal logs generated yet.</div>
+              <div className="text-gray-500 py-4 text-center">Ready. Click "Start Scan" to begin dispatching.</div>
             ) : (
               logs.map((l) => (
                 <div key={l.id} className="leading-relaxed">

@@ -13,6 +13,8 @@ import urlscan_submit
 from urlscan_submit import (
     is_valid_domain, 
     resolve_domain_ips,
+    ASCII_LOGO,
+    print_banner,
     load_config, 
     get_user_info, 
     get_scan_report, 
@@ -74,9 +76,12 @@ class TestUrlscanSubmit(unittest.TestCase):
             ips = resolve_domain_ips("invalid-nonexistent-sub.com")
             self.assertEqual(ips, [])
 
-    # ==========================================
-    # Progress Bar & Output Formatting Tests
-    # ==========================================
+    def test_print_banner(self):
+        self.assertIn("urlscan", ASCII_LOGO.lower())
+        with patch('sys.stdout', new_callable=io.StringIO) as mock_stdout:
+            print_banner()
+            output = mock_stdout.getvalue()
+            self.assertIn("urlscan.io", output)
 
     def test_safe_print(self):
         # With tqdm available

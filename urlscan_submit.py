@@ -42,6 +42,25 @@ class Colors:
     BOLD: str = '\033[1m'
     UNDERLINE: str = '\033[4m'
 
+# ASCII Art Brand Logo
+ASCII_LOGO: str = r"""
+ _   _ ____  _     ____   ____    _    _   _ 
+| | | |  _ \| |   / ___| / ___|  / \  | \ | |
+| | | | |_) | |   \___ \| |     / _ \ |  \| |
+| |_| |  _ <| |___ ___) | |___ / ___ \| |\  |
+ \___/|_| \_\_____|____/ \____/_/   \_\_| \_|
+  ____  _   _ ____  __  __ ___ _____ _____ _____ ____  
+ / ___|| | | | __ )|  \/  |_ _|_   _|_   _| ____|  _ \ 
+ \___ \| | | |  _ \| |\/| || |  | |   | | |  _| | |_) |
+  ___) | |_| | |_) | |  | || |  | |   | | | |___|  _ < 
+ |____/ \___/|____/|_|  |_|___| |_|   |_| |_____|_| \_\
+                 v1.2.0 | urlscan.io Automation Engine
+"""
+
+def print_banner() -> None:
+    """Prints the application ASCII logo banner."""
+    print(f"{Colors.OKCYAN}{ASCII_LOGO}{Colors.ENDC}")
+
 # --- PROGRESS BAR SUPPORT ---
 # Implements a fallback ASCII progress bar when tqdm is unavailable
 # Ensures consistent progress reporting across environments
@@ -573,6 +592,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="urlscan-submit",
         description=(
+            f"{ASCII_LOGO}\n"
             "===============================================================\n"
             " urlscan-submit: High-Performance Domain Submission & Recon CLI\n"
             "===============================================================\n"
@@ -670,6 +690,7 @@ configuration & api key priority:
                            help="2-letter ISO country code to scan from (e.g. us, de, jp)")
 
     args = parser.parse_args()
+    print_banner()
 
     # Load Configuration
     config = load_config(args.config)
