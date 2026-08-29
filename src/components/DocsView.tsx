@@ -476,6 +476,10 @@ urlscan-submit -f daily_domain_feed.txt -j daily_siem_feed.json -w 12 --tags "si
                     <td className="px-4 py-2.5 text-gray-600">Single base target domain or IPv4 address (e.g. <code className="bg-gray-100 px-1 rounded">example.com</code> or <code className="bg-gray-100 px-1 rounded">123.21.33.22</code>).</td>
                   </tr>
                   <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-D, --dns-precheck</td>
+                    <td className="px-4 py-2.5 text-gray-600">Fast local DNS pre-check to skip unresolvable domains before dispatching submissions to urlscan.io.</td>
+                  </tr>
+                  <tr>
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--delay &lt;SECONDS&gt;</td>
                     <td className="px-4 py-2.5 text-gray-600">Intentional delay floor in seconds between worker dispatches to stay under rate limits.</td>
                   </tr>

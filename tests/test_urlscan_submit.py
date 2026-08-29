@@ -4,6 +4,7 @@ import sys
 import os
 import io
 import json
+import socket
 import urllib.error
 
 # Insert parent directory into sys.path
@@ -13,6 +14,8 @@ import urlscan_submit
 from urlscan_submit import (
     is_valid_domain, 
     resolve_domain_ips,
+    extract_hostname,
+    can_resolve_dns,
     extract_tld,
     extract_apex_domain,
     generate_tags_for_url,
@@ -973,6 +976,100 @@ class TestUrlscanSubmit(unittest.TestCase):
                         main()
 
         self.assertEqual(mock_submit.call_count, 1)
+
+    def test_extract_hostname(self):
+        self.assertEqual(extract_hostname("https://client.gov.ru/path?query=1"), "client.gov.ru")
+        self.assertEqual(extract_hostname("http://123.21.33.22:8080/"), "123.21.33.22")
+        self.assertEqual(extract_hostname("EXAMPLE.COM"), "example.com")
+
+    def test_can_resolve_dns(self):
+        # IP addresses always resolve to True
+        self.assertTrue(can_resolve_dns("123.21.33.22"))
+        
+        # Mocked socket
+        with patch('socket.gethostbyname', return_value="93.184.216.34"):
+            self.assertTrue(can_resolve_dns("example.com"))
+
+        with patch('socket.gethostbyname', side_effect=socket.gaierror("not found")):
+            self.assertFalse(can_resolve_dns("nonexistent-domain-xyz123.com"))
+
+    def test_submit_to_urlscan_records_dns_error(self):
+        unresolvable = set()
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "message": "DNS Error - Could not resolve domain",
+            "status": 400
+        }).encode("utf-8")
+
+        mock_http_error = urllib.error.HTTPError(
+            url="https://urlscan.io/api/v1/scan",
+            code=400,
+            msg="Bad Request",
+            hdrs={},
+            fp=mock_response
+        )
+
+        with patch('urllib.request.urlopen', side_effect=mock_http_error):
+            res = submit_to_urlscan(
+                url="http://client.gov.ru",
+                api_key="test_key",
+                unresolvable_hosts=unresolvable
+            )
+            self.assertIsNone(res)
+            self.assertIn("client.gov.ru", unresolvable)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan')
+    @patch('time.sleep')
+    def test_main_skips_https_when_http_fails_dns(self, mock_sleep, mock_submit, mock_user_info):
+        # When http://client.gov.ru is submitted, simulate submit_to_urlscan recording it as unresolvable
+        def mock_submit_impl(url, *args, **kwargs):
+            unresolvable = kwargs.get("unresolvable_hosts")
+            if url == "http://client.gov.ru":
+                if unresolvable is not None:
+                    unresolvable.add("client.gov.ru")
+                return None
+            return {"uuid": "uuid-other"}
+
+        mock_submit.side_effect = mock_submit_impl
+
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'client.gov.ru',
+            '-p', 'both',  # generates http://client.gov.ru and https://client.gov.ru
+            '-s', 'root'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        # http://client.gov.ru is submitted once; https://client.gov.ru is skipped before submission!
+        self.assertEqual(mock_submit.call_count, 1)
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertEqual(submitted_urls, ["http://client.gov.ru"])
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.can_resolve_dns', return_value=False)
+    @patch('urlscan_submit.submit_to_urlscan')
+    @patch('time.sleep')
+    def test_main_dns_precheck_flag(self, mock_sleep, mock_submit, mock_can_resolve, mock_user_info):
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'unresolvable-domain.com',
+            '-D'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        # Skips submitting entirely because DNS precheck failed
+        self.assertEqual(mock_submit.call_count, 0)
 
     def test_module_main_invocation(self):
         import runpy

@@ -19,7 +19,7 @@ import sys
 import time
 import urllib.request
 import urllib.error
-from typing import List, Dict, Optional, Any, Union
+from typing import List, Dict, Optional, Any, Union, Set
 
 # Ensure UTF-8 output encoding across Windows / Unix terminals
 if hasattr(sys.stdout, "reconfigure"):
@@ -230,6 +230,34 @@ def resolve_domain_ips(hostname: str) -> List[str]:
         return [ip for ip in ip_list if ip]
     except (socket.gaierror, socket.herror, OSError):
         return []
+
+def extract_hostname(url_or_domain: str) -> str:
+    """
+    Extracts the clean, normalized hostname or IP from a URL or domain string.
+    """
+    clean = url_or_domain.strip().replace("http://", "").replace("https://", "").rstrip("/")
+    if "/" in clean:
+        clean = clean.split("/")[0]
+    if ":" in clean:
+        clean = clean.split(":")[0]
+    return clean.lower()
+
+def can_resolve_dns(hostname: str) -> bool:
+    """
+    Quickly checks if a hostname or IP can be resolved via DNS.
+    Returns True if resolvable or already an IPv4 address, False if resolution fails.
+    """
+    clean = extract_hostname(hostname)
+    try:
+        ipaddress.ip_address(clean)
+        return True
+    except ValueError:
+        pass
+    try:
+        socket.gethostbyname(clean)
+        return True
+    except (socket.gaierror, socket.herror, OSError):
+        return False
 
 def extract_tld(hostname: str) -> Optional[str]:
     """
@@ -478,7 +506,8 @@ def submit_to_urlscan(
     tags: Optional[List[str]] = None, 
     customagent: Optional[str] = None, 
     referer: Optional[str] = None, 
-    country: Optional[str] = None
+    country: Optional[str] = None,
+    unresolvable_hosts: Optional[Set[str]] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Submits a URL to urlscan.io using their /api/v1/scan endpoint.
@@ -494,6 +523,7 @@ def submit_to_urlscan(
         customagent (str, optional): Custom User-Agent string to use.
         referer (str, optional): Custom Referer string to use.
         country (str, optional): 2-letter ISO country code to scan from.
+        unresolvable_hosts (set, optional): Set to record hostnames that fail DNS resolution.
         
     Returns:
         dict: The parsed JSON response from the urlscan.io API if successful (contains 'uuid').
@@ -577,6 +607,11 @@ def submit_to_urlscan(
                 continue
             elif e.code == 400:
                 print(f"{Colors.FAIL}[-] Bad Request (400) for {url}. Check domain format: {error_msg}{Colors.ENDC}")
+                err_str = str(error_msg).lower()
+                if "dns error" in err_str or "could not resolve domain" in err_str or "nxdomain" in err_str:
+                    host = extract_hostname(url)
+                    if unresolvable_hosts is not None:
+                        unresolvable_hosts.add(host)
                 return None
             elif e.code in (401, 403):
                 print(f"{Colors.FAIL}[-] Auth Error ({e.code}). Please verify your URLSCAN_API_KEY. Message: {error_msg}{Colors.ENDC}")
@@ -898,6 +933,8 @@ configuration & api key priority:
                         help="🌍 2-letter ISO country code to scan from (e.g. us, de, jp)")
     target_mut.add_argument("-d", "--domain", "-🎯", metavar="DOMAIN",
                             help="🎯 Single target domain, hostname, or IP address (e.g. example.com or 123.21.33.22)")
+    parser.add_argument("-D", "--dns-precheck", "-🧪", action="store_true",
+                        help="🧪 Fast local DNS pre-check: skip unresolvable domains before submitting")
     parser.add_argument("--delay", "-🐢", type=float, default=0.0, metavar="SECONDS",
                         help="🐢 Intentional delay floor in seconds between worker dispatches (default: 0.0)")
     parser.add_argument("-e", "--export-csv", "-📊", metavar="FILE",
@@ -953,6 +990,7 @@ configuration & api key priority:
     args.visibility = args.visibility or config.get("visibility") or "public"
     args.explore = args.explore or config.get("explore", False)
     args.resolve_ips = args.resolve_ips or config.get("resolve_ips", False) or config.get("submit_ips", False)
+    args.dns_precheck = args.dns_precheck or config.get("dns_precheck", False)
     args.api_key_file = args.api_key_file or config.get("api_key_file")
     args.recursive = args.recursive if args.recursive is not None and args.recursive > 0 else (config.get("recursive") or config.get("recursion_depth") or 0)
     args.max_links = args.max_links or config.get("max_links", 10)
@@ -1139,11 +1177,24 @@ configuration & api key priority:
         "failed": 0,
         "reports": 0
     }
+    unresolvable_hosts: Set[str] = set()
     
     def process_url(item: Union[Dict[str, Any], str], depth: int = 0):
         if isinstance(item, str):
             item = {"url": item, "parent_domain": None, "is_resolved_ip": False}
         url = item["url"]
+        host = extract_hostname(url)
+
+        # 1. Skip if domain was previously identified as unresolvable (DNS Error on urlscan.io)
+        if host in unresolvable_hosts:
+            print(f"{Colors.WARNING}[-] Skipping {url} (domain '{host}' failed DNS resolution / unresolvable){Colors.ENDC}")
+            return False, None
+
+        # 2. Fast local DNS pre-check if requested
+        if args.dns_precheck and not can_resolve_dns(host):
+            unresolvable_hosts.add(host)
+            print(f"{Colors.WARNING}[-] Skipping {url} (DNS pre-check failed: domain '{host}' cannot be resolved){Colors.ENDC}")
+            return False, None
         
         # Dynamically generate rich tags (5+ tags with emojis) for this specific target
         item_tags = generate_tags_for_url(
@@ -1165,7 +1216,8 @@ configuration & api key priority:
             tags=item_tags,
             customagent=args.user_agent,
             referer=args.referer,
-            country=args.country
+            country=args.country,
+            unresolvable_hosts=unresolvable_hosts
         )
         report_data = None
         is_success = False
