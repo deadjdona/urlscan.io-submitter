@@ -1071,6 +1071,107 @@ class TestUrlscanSubmit(unittest.TestCase):
         # Skips submitting entirely because DNS precheck failed
         self.assertEqual(mock_submit.call_count, 0)
 
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-full-combo"})
+    @patch('urlscan_submit.get_scan_report', return_value={"data": {}, "lists": {"domains": ["linked.org"]}})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.1.1.1'])
+    @patch('urlscan_submit.can_resolve_dns', return_value=True)
+    @patch('urlscan_submit.export_to_csv')
+    @patch('urlscan_submit.export_to_json')
+    @patch('time.sleep')
+    def test_main_all_parameters_combination_full(
+        self, mock_sleep, mock_export_json, mock_export_csv,
+        mock_can_resolve, mock_resolve_ips, mock_get_report, mock_submit, mock_user_info
+    ):
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'megacorp.com',
+            '-p', 'both',
+            '-s', 'both',
+            '-xxx',
+            '-I',
+            '-D',
+            '-w', '4',
+            '--delay', '0.01',
+            '-t', 'incident-404,pentest',
+            '-V', 'private',
+            '--country', 'us',
+            '-ua', 'CustomThreatBot/2.0',
+            '--referer', 'https://internal.sec.team',
+            '-r',
+            '-e', 'full_matrix.csv',
+            '-j', 'full_matrix.json',
+            '-R', '1',
+            '--max-links', '2',
+            '-v'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        self.assertTrue(mock_submit.called)
+        self.assertTrue(mock_get_report.called)
+        self.assertTrue(mock_export_csv.called)
+        self.assertTrue(mock_export_json.called)
+
+        # Check call arguments for submit_to_urlscan
+        submit_args = mock_submit.call_args_list[0][0]
+        submit_kwargs = mock_submit.call_args_list[0][1]
+        self.assertEqual(submit_args[2], "private")
+        self.assertEqual(submit_kwargs.get("country"), "us")
+        self.assertEqual(submit_kwargs.get("customagent"), "CustomThreatBot/2.0")
+        self.assertEqual(submit_kwargs.get("referer"), "https://internal.sec.team")
+        self.assertTrue(submit_kwargs.get("verbose"))
+        self.assertIn("incident-404", submit_kwargs.get("tags", []))
+        self.assertIn("pentest", submit_kwargs.get("tags", []))
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-emoji-combo"})
+    @patch('urlscan_submit.get_scan_report', return_value={"data": {}, "lists": {"domains": []}})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['8.8.8.8'])
+    @patch('urlscan_submit.can_resolve_dns', return_value=True)
+    @patch('urlscan_submit.export_to_csv')
+    @patch('urlscan_submit.export_to_json')
+    @patch('time.sleep')
+    def test_main_all_emoji_flags_combination(
+        self, mock_sleep, mock_export_json, mock_export_csv,
+        mock_can_resolve, mock_resolve_ips, mock_get_report, mock_submit, mock_user_info
+    ):
+        cli_args = [
+            'urlscan_submit.py',
+            '-🎯', 'targetcorp.io',
+            '-🌐', 'both',
+            '-🏢', 'both',
+            '-🔍',
+            '-🔎',
+            '-🧪',
+            '-🚀', '2',
+            '-🐢', '0.01',
+            '-🏷', 'triage,ops',
+            '-👻', 'unlisted',
+            '-🌍', 'de',
+            '-🤖', 'SecBot/1.0',
+            '-🔗', 'https://threatintel.org',
+            '-📝',
+            '-📊', 'emoji_run.csv',
+            '-📜', 'emoji_run.json',
+            '-🕸', '1',
+            '-📎', '3'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        self.assertTrue(mock_submit.called)
+        self.assertTrue(mock_export_csv.called)
+        self.assertTrue(mock_export_json.called)
+
     def test_module_main_invocation(self):
         import runpy
         with patch('sys.argv', ['urlscan_submit.py', '-d', 'example.com']):
