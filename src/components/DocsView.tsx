@@ -500,12 +500,20 @@ urlscan-submit -f daily_domain_feed.txt -j daily_siem_feed.json -w 12 --tags "si
                     <td className="px-4 py-2.5 text-gray-600">Path to file containing urlscan.io API key.</td>
                   </tr>
                   <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--max-links &lt;N&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Maximum number of discovered linked domains to follow per scan in recursive mode (default: 10).</td>
+                  </tr>
+                  <tr>
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-p, --protocols &lt;P&gt;</td>
                     <td className="px-4 py-2.5 text-gray-600">Protocol generation: <code className="bg-gray-100 px-1 rounded font-mono">http</code>, <code className="bg-gray-100 px-1 rounded font-mono">https</code>, or <code className="bg-gray-100 px-1 rounded font-mono">both</code> (default: <code className="font-mono">https</code>).</td>
                   </tr>
-                  <tr>
+                  <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-r, --report</td>
                     <td className="px-4 py-2.5 text-gray-600">Wait for scan completion and display summary report.</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-mono font-bold text-purple-600">-R, --recursive &lt;DEPTH&gt;</td>
+                    <td className="px-4 py-2.5 text-gray-600">Recursion depth to follow and scan outgoing/linked domains discovered in scan reports (e.g. <code className="bg-gray-100 px-1 rounded font-mono">-R 1</code>, <code className="bg-gray-100 px-1 rounded font-mono">-R 2</code>).</td>
                   </tr>
                   <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--referer &lt;URL&gt;</td>

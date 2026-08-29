@@ -16,6 +16,7 @@ from urlscan_submit import (
     extract_tld,
     extract_apex_domain,
     generate_tags_for_url,
+    extract_linked_domains,
     ASCII_LOGO,
     print_banner,
     load_config, 
@@ -866,6 +867,112 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertIn("http://example.com", submitted_urls)
         self.assertIn("https://www.example.com", submitted_urls)
         self.assertIn("http://1.2.3.4/", submitted_urls)
+
+    def test_extract_linked_domains_all_sources(self):
+        sample_report = {
+            "data": {
+                "links": [
+                    {"href": "https://linked-one.org/login", "text": "Login"},
+                    {"href": "http://123.21.33.22/admin"},
+                    "https://direct-string-link.com/home",
+                    {"href": ""}  # empty
+                ],
+                "requests": [
+                    {
+                        "request": {"documentURL": "https://req-doc.net/script.js"},
+                        "response": {"response": {"url": "https://res-url.io/api"}}
+                    }
+                ]
+            },
+            "lists": {
+                "domains": ["contacted-domain.biz", "example.com"],
+                "urls": ["https://url-in-list.com/index.html"]
+            }
+        }
+        discovered = extract_linked_domains(sample_report)
+        self.assertIn("linked-one.org", discovered)
+        self.assertIn("123.21.33.22", discovered)
+        self.assertIn("direct-string-link.com", discovered)
+        self.assertIn("req-doc.net", discovered)
+        self.assertIn("res-url.io", discovered)
+        self.assertIn("contacted-domain.biz", discovered)
+        self.assertIn("example.com", discovered)
+        self.assertIn("url-in-list.com", discovered)
+
+    def test_extract_linked_domains_empty_and_invalid(self):
+        self.assertEqual(extract_linked_domains(None), [])
+        self.assertEqual(extract_linked_domains({}), [])
+        self.assertEqual(extract_linked_domains({"data": None, "lists": None}), [])
+
+    def test_generate_tags_for_url_recursion(self):
+        tags = generate_tags_for_url(
+            url="https://phishing-partner.biz",
+            recursion_depth=2
+        )
+        self.assertIn("🕸️-depth-2", tags)
+        self.assertIn("🕸️-recursive", tags)
+        self.assertIn("🔒-https", tags)
+        self.assertIn("🏷️-biz", tags)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan')
+    @patch('urlscan_submit.get_scan_report')
+    @patch('time.sleep')
+    def test_main_recursive_scan_execution(self, mock_sleep, mock_report, mock_submit, mock_user_info):
+        # Mock submit returning UUIDs
+        mock_submit.side_effect = [
+            {"uuid": "uuid-level0"},
+            {"uuid": "uuid-level1-a"}
+        ]
+        # Mock scan report discovering a new linked domain
+        mock_report.return_value = {
+            "data": {
+                "links": [
+                    {"href": "https://discovered-partner.com/portal"}
+                ]
+            },
+            "lists": {
+                "domains": ["discovered-partner.com"]
+            }
+        }
+
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'rootdomain.com',
+            '-p', 'https',
+            '-s', 'root',
+            '-R', '1',
+            '--max-links', '5'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://rootdomain.com", submitted_urls)
+        self.assertIn("https://discovered-partner.com", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-0"})
+    @patch('urlscan_submit.get_scan_report', return_value={})
+    @patch('time.sleep')
+    def test_main_recursive_scan_no_new_links(self, mock_sleep, mock_report, mock_submit, mock_user_info):
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'empty-links.com',
+            '-R', '2'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        self.assertEqual(mock_submit.call_count, 1)
 
     def test_module_main_invocation(self):
         import runpy

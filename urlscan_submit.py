@@ -267,7 +267,8 @@ def generate_tags_for_url(
     parent_domain: Optional[str] = None,
     source_file: Optional[str] = None,
     explore_mode: Optional[str] = None,
-    is_resolved_ip: bool = False
+    is_resolved_ip: bool = False,
+    recursion_depth: int = 0
 ) -> List[str]:
     """
     Generates rich contextual tags (5+ tags with emojis) for each URL submission:
@@ -275,6 +276,7 @@ def generate_tags_for_url(
     - Protocol scheme (🔒-https or 🔓-http)
     - IP indicator (📌-ip, 🌐-ipv4) or Domain/TLD indicators (🏷️-com, 🎯-apex.com, 🏢-subdomain)
     - Source and recon context (📁-list-name, 🔍-explore, 🔎-resolved-ip, 🤖-urlscan-submit)
+    - Recursive crawl depth (🕸️-depth-1, 🕸️-recursive)
     
     Returns:
         List[str]: Up to 10 unique, emoji-enhanced tags.
@@ -362,12 +364,110 @@ def generate_tags_for_url(
         elif explore_mode == "wordlist":
             tags.append("📖-wordlist")
 
-    # 5. Automation engine tag
+    # 5. Recursive Crawl tags
+    if recursion_depth > 0:
+        tags.append(f"🕸️-depth-{recursion_depth}")
+        tags.append("🕸️-recursive")
+
+    # 6. Automation engine tag
     tags.append("🤖-urlscan-submit")
 
     # Deduplicate while preserving order and limit to max 10 tags
     unique_tags = list(dict.fromkeys(tags))
     return unique_tags[:10]
+
+def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
+    """
+    Extracts linked domains and hostnames discovered during a urlscan.io scan.
+    
+    Inspects:
+    - DOM links (report['data']['links'])
+    - Contacted domains list (report['lists']['domains'])
+    - Contacted URLs list (report['lists']['urls'])
+    - Network requests (report['data']['requests'])
+    
+    Args:
+        report (dict): The full scan report JSON from urlscan.io.
+        
+    Returns:
+        List[str]: Unique, valid domain names and IP addresses discovered in the scan.
+    """
+    if not report or not isinstance(report, dict):
+        return []
+
+    discovered = set()
+
+    def clean_target(t: Any) -> Optional[str]:
+        if not t or not isinstance(t, str):
+            return None
+        c = t.strip().replace("http://", "").replace("https://", "").rstrip("/")
+        if "/" in c:
+            c = c.split("/")[0]
+        if ":" in c:
+            c = c.split(":")[0]
+        c = c.lower()
+        if is_valid_domain(c):
+            return c
+        try:
+            ipaddress.ip_address(c)
+            return c
+        except ValueError:
+            return None
+
+    # 1. DOM links (data.links)
+    data = report.get("data")
+    if isinstance(data, dict):
+        links = data.get("links")
+        if isinstance(links, list):
+            for item in links:
+                if isinstance(item, dict):
+                    href = item.get("href") or item.get("url") or ""
+                    clean = clean_target(href)
+                    if clean:
+                        discovered.add(clean)
+                elif isinstance(item, str):
+                    clean = clean_target(item)
+                    if clean:
+                        discovered.add(clean)
+
+        # Network requests (data.requests)
+        requests = data.get("requests")
+        if isinstance(requests, list):
+            for req in requests:
+                if isinstance(req, dict):
+                    req_obj = req.get("request", {})
+                    if isinstance(req_obj, dict):
+                        doc_url = req_obj.get("documentURL") or req_obj.get("url") or ""
+                        clean = clean_target(doc_url)
+                        if clean:
+                            discovered.add(clean)
+                    res_obj = req.get("response", {})
+                    if isinstance(res_obj, dict):
+                        res_sub = res_obj.get("response", {})
+                        if isinstance(res_sub, dict):
+                            res_url = res_sub.get("url") or ""
+                            clean = clean_target(res_url)
+                            if clean:
+                                discovered.add(clean)
+
+    # 2. Contacted domains and URLs (lists.domains, lists.urls)
+    lists = report.get("lists")
+    if isinstance(lists, dict):
+        domain_list = lists.get("domains")
+        if isinstance(domain_list, list):
+            for d in domain_list:
+                clean = clean_target(d)
+                if clean:
+                    discovered.add(clean)
+
+        url_list = lists.get("urls")
+        if isinstance(url_list, list):
+            for u in url_list:
+                clean = clean_target(u)
+                if clean:
+                    discovered.add(clean)
+
+    return sorted(discovered)
 
 def submit_to_urlscan(
     url: str, 
@@ -777,6 +877,10 @@ examples:
   urlscan-submit -📁 targets.txt -👻 private -🐢 1.5 -🏷 "incident-404,redteam" -📊 summary.csv -📝
   (or: urlscan-submit -f targets.txt -V private --delay 1.5 --tags "incident-404,redteam" -e summary.csv -r)
 
+  # 🕸️ Deep recursive recon following discovered links up to 2 levels deep:
+  urlscan-submit -🎯 target.com -🕸 2 -📎 5
+  (or: urlscan-submit -d target.com -R 2 --max-links 5)
+
 configuration & api key priority:
   1. 🔑 CLI parameter: --api-key-file <path>
   2. ⚙️ Config file: -c / --config <path> (or .urlscan-config.json / .urlscan-config.yaml)
@@ -806,10 +910,14 @@ configuration & api key priority:
                         help="📜 Export full raw JSON API responses to file (forces report polling)")
     parser.add_argument("-k", "--api-key-file", "-🔑", metavar="FILE",
                         help="🔑 Path to file containing urlscan.io API key")
+    parser.add_argument("--max-links", "-📎", type=int, default=10, metavar="N",
+                        help="📎 Maximum number of discovered linked domains to follow per scan in recursive mode (default: 10)")
     parser.add_argument("-p", "--protocols", "-🌐", choices=["http", "https", "both"], default=None,
                         help="🌐 Protocols to generate in matrix (default: https)")
     parser.add_argument("-r", "--report", "-📝", action="store_true",
                         help="📝 Wait for scan completion and display summary report")
+    parser.add_argument("-R", "--recursive", "--recursion", "-🕸", type=int, default=0, metavar="DEPTH",
+                        help="🕸️ Recursion depth to follow and scan discovered links/domains from results (e.g. -R 1, -R 2)")
     parser.add_argument("--referer", "-🔗", metavar="URL",
                         help="🔗 Override HTTP Referer header sent during scan")
     parser.add_argument("-s", "--subdomains", "-🏢", choices=["root", "www", "both"], default=None,
@@ -846,6 +954,8 @@ configuration & api key priority:
     args.explore = args.explore or config.get("explore", False)
     args.resolve_ips = args.resolve_ips or config.get("resolve_ips", False) or config.get("submit_ips", False)
     args.api_key_file = args.api_key_file or config.get("api_key_file")
+    args.recursive = args.recursive if args.recursive is not None and args.recursive > 0 else (config.get("recursive") or config.get("recursion_depth") or 0)
+    args.max_links = args.max_links or config.get("max_links", 10)
 
     api_key = None
     if args.api_key_file:
@@ -1030,7 +1140,7 @@ configuration & api key priority:
         "reports": 0
     }
     
-    def process_url(item: Union[Dict[str, Any], str]):
+    def process_url(item: Union[Dict[str, Any], str], depth: int = 0):
         if isinstance(item, str):
             item = {"url": item, "parent_domain": None, "is_resolved_ip": False}
         url = item["url"]
@@ -1042,7 +1152,8 @@ configuration & api key priority:
             parent_domain=item.get("parent_domain"),
             source_file=args.file,
             explore_mode=recon_mode,
-            is_resolved_ip=item.get("is_resolved_ip", False)
+            is_resolved_ip=item.get("is_resolved_ip", False),
+            recursion_depth=depth
         )
 
         print(f"{Colors.OKCYAN}[*] Submitting {url} ...{Colors.ENDC}")
@@ -1065,7 +1176,8 @@ configuration & api key priority:
             print(f"{Colors.OKGREEN}[+] Success! Scan UUID: {uuid}{Colors.ENDC}")
             print(f"{Colors.OKGREEN}[+] Result Link: {Colors.UNDERLINE}https://urlscan.io/result/{uuid}/{Colors.ENDC}")
             
-            if args.report or args.export_csv or args.json_log:
+            # Poll scan report if summary requested, exports configured, or needed for recursive link extraction
+            if args.report or args.export_csv or args.json_log or (args.recursive > 0 and depth < args.recursive):
                 report_data = get_scan_report(uuid, api_key)
                 if args.report:
                     print_summary(report_data)
@@ -1076,35 +1188,119 @@ configuration & api key priority:
         return is_success, report_data
         
     import concurrent.futures
-    pbar = create_progress_bar(total=len(urls_to_scan), desc="Submitting URLs")
-    
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(process_url, item) for item in unique_target_items]
-        
-        for future in concurrent.futures.as_completed(futures):
-            is_success, res = future.result()
-            if is_success:
-                scan_metrics["success"] += 1
-            else:
-                scan_metrics["failed"] += 1
-                
-            if res and (args.export_csv or args.json_log):
-                all_reports.append(res)
-                scan_metrics["reports"] += 1
-                
-            postfix = {
-                "ok": scan_metrics["success"],
-                "err": scan_metrics["failed"]
-            }
-            if args.report or args.export_csv or args.json_log:
-                postfix["reports"] = scan_metrics["reports"]
-                
-            pbar.set_postfix(postfix, refresh=True)
-            pbar.update(1)
 
-    pbar.close()
+    current_depth = 0
+    max_depth = max(0, args.recursive)
+    current_items = unique_target_items
+    visited_domains = set(domains)
+    visited_urls = set(item["url"] for item in unique_target_items)
+    total_urls_submitted_count = 0
 
-    total_scanned = len(urls_to_scan)
+    try:
+        while current_items and current_depth <= max_depth:
+            if max_depth > 0:
+                print(f"\n{Colors.OKCYAN}[*] 🕸️ === RECURSION DEPTH LEVEL {current_depth}/{max_depth} ({len(current_items)} targets) ==={Colors.ENDC}")
+
+            pbar = create_progress_bar(total=len(current_items), desc=f"Scanning (Depth {current_depth})" if max_depth > 0 else "Submitting URLs")
+            level_reports = []
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = [executor.submit(process_url, item, current_depth) for item in current_items]
+                
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        is_success, res = future.result()
+                    except Exception as exc:
+                        is_success, res = False, None
+                        print(f"{Colors.FAIL}[-] Worker thread encountered exception: {exc}{Colors.ENDC}")
+
+                    if is_success:
+                        scan_metrics["success"] += 1
+                    else:
+                        scan_metrics["failed"] += 1
+                        
+                    if res:
+                        level_reports.append(res)
+                        if (args.report or args.export_csv or args.json_log):
+                            all_reports.append(res)
+                            scan_metrics["reports"] += 1
+                        
+                    postfix = {
+                        "ok": scan_metrics["success"],
+                        "err": scan_metrics["failed"]
+                    }
+                    if args.report or args.export_csv or args.json_log:
+                        postfix["reports"] = scan_metrics["reports"]
+                        
+                    pbar.set_postfix(postfix, refresh=True)
+                    pbar.update(1)
+
+            pbar.close()
+            total_urls_submitted_count += len(current_items)
+
+            # If we've reached max recursion depth or recursion is not enabled, finish
+            if current_depth >= max_depth:
+                break
+
+            # Extract linked domains from this level's scan reports
+            discovered_for_next_level: List[str] = []
+            for rep in level_reports:
+                linked_doms = extract_linked_domains(rep)
+                for d in linked_doms:
+                    if d not in visited_domains and d not in discovered_for_next_level:
+                        discovered_for_next_level.append(d)
+
+            # Cap discovered links per scan cycle if max_links configured
+            if args.max_links and args.max_links > 0:
+                discovered_for_next_level = discovered_for_next_level[:args.max_links]
+
+            if not discovered_for_next_level:
+                print(f"\n{Colors.OKBLUE}[*] 🕸️ No new unvisited linked domains discovered from scan reports. Stopping recursive crawl.{Colors.ENDC}")
+                break
+
+            print(f"\n{Colors.OKGREEN}[+] 🕸️ Discovered {len(discovered_for_next_level)} new linked domain(s) to follow for depth {current_depth + 1}:{Colors.ENDC}")
+            for d in discovered_for_next_level:
+                print(f"    -> {d}")
+                visited_domains.add(d)
+
+            # Build next level target items
+            next_items: List[Dict[str, Any]] = []
+            for next_dom in discovered_for_next_level:
+                is_ip = False
+                try:
+                    ipaddress.ip_address(next_dom)
+                    is_ip = True
+                except ValueError:
+                    is_ip = False
+
+                if is_ip:
+                    for proto in protocols:
+                        u = f"{proto}{next_dom}/"
+                        if u not in visited_urls:
+                            visited_urls.add(u)
+                            next_items.append({
+                                "url": u,
+                                "parent_domain": None,
+                                "is_resolved_ip": False
+                            })
+                else:
+                    for proto in protocols:
+                        u = f"{proto}{next_dom}"
+                        if u not in visited_urls:
+                            visited_urls.add(u)
+                            next_items.append({
+                                "url": u,
+                                "parent_domain": next_dom,
+                                "is_resolved_ip": False
+                            })
+
+            current_items = next_items
+            current_depth += 1
+
+    except KeyboardInterrupt:
+        print(f"\n{Colors.WARNING}[!] Scan interrupted by user (Ctrl+C). Generating summary report...{Colors.ENDC}")
+
+    total_scanned = total_urls_submitted_count
     print(f"\n{Colors.HEADER}============================================={Colors.ENDC}")
     print(f"{Colors.BOLD} 🏁 SCAN SUBMISSIONS COMPLETED{Colors.ENDC}")
     print(f"{Colors.HEADER}============================================={Colors.ENDC}")
@@ -1113,6 +1309,8 @@ configuration & api key priority:
     print(f" Failed Submissions : {Colors.FAIL if scan_metrics['failed'] else Colors.OKGREEN}{scan_metrics['failed']}{Colors.ENDC} ({scan_metrics['failed']/total_scanned*100:.1f}%)" if total_scanned else " Failed Submissions: 0")
     if args.report or args.export_csv or args.json_log:
         print(f" Reports Retrieved  : {scan_metrics['reports']}")
+    if max_depth > 0:
+        print(f" Max Recursion Depth: {current_depth}/{max_depth}")
     print(f"{Colors.HEADER}============================================={Colors.ENDC}\n")
 
     if args.export_csv and all_reports:
