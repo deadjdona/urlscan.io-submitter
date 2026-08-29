@@ -1,1 +1,0 @@
-{"root":["./server.ts","./vite.config.ts","./docs/assets/index-dmtmwqau.js","./src/app.tsx","./src/main.tsx","./src/components/datasetexplorer.tsx","./src/components/docsview.tsx","./src/components/livescanner.tsx","./src/services/apiservice.ts","./src/services/scanrunner.ts","./src/types/scanner.ts"],"version":"5.8.3"}

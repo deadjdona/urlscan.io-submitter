@@ -92,3 +92,7 @@ ehthumbs.db
 *.swo
 *~
 
+# Stray artifacts
+1.1.0
+
+
