@@ -67,6 +67,7 @@ export interface ScanConfig {
   country?: string; // Optional geographic region for scanning
   userAgent?: string; // Custom User-Agent header (default: Chrome)
   referer?: string; // Custom Referer header
+  resolveIps?: boolean; // Resolve DNS A-records for subdomains and submit IP variants
   engine: EngineMode; // Submission backend (simulation/client_api/backend_sse)
 }
 

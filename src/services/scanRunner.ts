@@ -68,28 +68,39 @@ export const MASSIVE_SUBDOMAINS: string[] = [
 ];
 
 /**
+ * Checks if a string is a valid IPv4 address
+ */
+export function isIPv4Address(str: string): boolean {
+  const parts = str.trim().split('.');
+  if (parts.length !== 4) return false;
+  return parts.every((p) => {
+    const n = parseInt(p, 10);
+    return !isNaN(n) && n >= 0 && n <= 255 && p === String(n);
+  });
+}
+
+/**
  * Expands a list of base target domains into a full enumeration matrix.
  * 
- * Generates all combination of:
+ * Generates all combinations of:
  * - Protocols: http, https, or both
  * - Subdomains: root domain, www, and optionally enumerated subdomains
  * - Explore modes: 'basic' (common), 'deep' (extended), 'massive' (comprehensive)
+ * - Direct IP targets: http://<ip>/ and https://<ip>/
  * 
- * @param baseTargets - Array of domain names or URLs (leading schemes and paths stripped)
+ * @param baseTargets - Array of domain names, IPs, or URLs
  * @param protocols - Which protocols to include ('https', 'http', or 'both')
  * @param subdomains - Which subdomains to include ('root', 'www', or 'both')
  * @param explore - Subdomain enumeration depth ('none', 'basic', 'deep', or 'massive')
+ * @param resolveIps - Optional flag to simulate/include IP addresses
  * @returns Array of fully expanded target URLs (deduplicated as Set)
- * 
- * @example
- * expandTargetMatrix(['example.com'], 'https', 'both', 'basic')
- * // Returns: ['https://example.com', 'https://www.example.com', 'https://mail.example.com', ...]
  */
 export function expandTargetMatrix(
   baseTargets: string[],
   protocols: 'https' | 'http' | 'both',
   subdomains: 'root' | 'www' | 'both',
-  explore: ExploreMode
+  explore: ExploreMode,
+  resolveIps: boolean = false
 ): string[] {
   const schemeList = protocols === 'both' ? ['https', 'http'] : [protocols];
   const results = new Set<string>();
@@ -97,8 +108,16 @@ export function expandTargetMatrix(
   for (const raw of baseTargets) {
     let clean = raw.trim();
     if (!clean || clean.startsWith('#')) continue;
-    // Strip leading schemes if present
+    // Strip leading schemes if present and trailing paths
     clean = clean.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '');
+
+    // Check if target is directly an IPv4 address
+    if (isIPv4Address(clean)) {
+      for (const scheme of schemeList) {
+        results.add(`${scheme}://${clean}/`);
+      }
+      continue;
+    }
 
     const subs: string[] = [];
     if (subdomains === 'root' || subdomains === 'both') {

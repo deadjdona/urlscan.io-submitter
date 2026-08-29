@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import urlscan_submit
 from urlscan_submit import (
     is_valid_domain, 
+    resolve_domain_ips,
     load_config, 
     get_user_info, 
     get_scan_report, 
@@ -37,6 +38,10 @@ class TestUrlscanSubmit(unittest.TestCase):
             "sub.example.com",
             "my-domain.co.uk",
             "1.1.1.1",
+            "123.21.33.22",
+            "http://123.21.33.22/",
+            "https://example.com/",
+            "2001:db8::1",
             "example.org"
         ]
         for domain in valid_domains:
@@ -45,17 +50,29 @@ class TestUrlscanSubmit(unittest.TestCase):
 
     def test_is_valid_domain_invalid(self):
         invalid_domains = [
-            "http://example.com",
             "example.com/path",
             "-example.com",
             "example-.com",
             "invalid_domain",
             "example..com",
-            ""
+            "",
+            "http://",
+            "999.999.999.999"
         ]
         for domain in invalid_domains:
             with self.subTest(domain=domain):
                 self.assertFalse(is_valid_domain(domain))
+
+    def test_resolve_domain_ips_success(self):
+        with patch('socket.gethostbyname_ex', return_value=('example.com', [], ['123.21.33.22', '123.21.33.23'])):
+            ips = resolve_domain_ips("example.com")
+            self.assertEqual(ips, ['123.21.33.22', '123.21.33.23'])
+
+    def test_resolve_domain_ips_error(self):
+        import socket
+        with patch('socket.gethostbyname_ex', side_effect=socket.gaierror("Name or service not known")):
+            ips = resolve_domain_ips("invalid-nonexistent-sub.com")
+            self.assertEqual(ips, [])
 
     # ==========================================
     # Progress Bar & Output Formatting Tests
@@ -677,7 +694,72 @@ class TestUrlscanSubmit(unittest.TestCase):
                     with patch('urlscan_submit.print'):
                         main()
 
-        self.assertTrue(mock_submit.called)
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip"})
+    @patch('time.sleep')
+    def test_main_direct_ip_submission(self, mock_sleep, mock_submit, mock_user_info):
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', '123.21.33.22',
+            '-p', 'both'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'env_api_key'}):
+                with patch('urlscan_submit.print'):
+                    main()
+
+        self.assertEqual(mock_submit.call_count, 2)
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("http://123.21.33.22/", submitted_urls)
+        self.assertIn("https://123.21.33.22/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-resolve-ip"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['123.21.33.22'])
+    @patch('time.sleep')
+    def test_main_resolve_ips_flag(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'example.com',
+            '-p', 'both',
+            '-s', 'root',
+            '-I'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'env_api_key'}):
+                with patch('urlscan_submit.print'):
+                    main()
+
+        mock_resolve_ips.assert_called_with('example.com')
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("http://example.com", submitted_urls)
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("http://123.21.33.22/", submitted_urls)
+        self.assertIn("https://123.21.33.22/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-resolve-cfg"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['123.21.33.22'])
+    @patch('time.sleep')
+    def test_main_resolve_ips_config(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = [
+            'urlscan_submit.py',
+            '-d', 'example.com',
+            '-p', 'https',
+            '-s', 'root'
+        ]
+
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'env_api_key'}):
+                with patch('urlscan_submit.load_config', return_value={"resolve_ips": True}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("https://123.21.33.22/", submitted_urls)
 
     def test_module_main_invocation(self):
         import runpy

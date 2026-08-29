@@ -10,9 +10,11 @@ This module submits URLs to urlscan.io for security scanning with built-in suppo
 
 import argparse
 import csv
+import ipaddress
 import json
 import os
 import re
+import socket
 import time
 import urllib.request
 import urllib.error
@@ -141,19 +143,58 @@ MASSIVE_SUBDOMAINS: List[str] = DEEP_SUBDOMAINS + [
 
 def is_valid_domain(domain: str) -> bool:
     """
-    Validates a domain name string (e.g., example.com) or IPv4 address.
+    Validates a domain name string (e.g., example.com) or IPv4/IPv6 address.
     
     Args:
-        domain (str): The domain string to validate.
+        domain (str): The domain or IP string to validate.
         
     Returns:
-        bool: True if the string is a syntactically valid domain or IPv4 address, False otherwise.
+        bool: True if the string is a syntactically valid domain or IP address, False otherwise.
     """
+    # Clean protocol and trailing slash if present
+    cleaned = domain.strip().replace("http://", "").replace("https://", "").rstrip("/")
+    if not cleaned:
+        return False
+
+    parts = cleaned.split('.')
+    # If formatted as 4 numeric octets, validate strictly as IPv4
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        try:
+            ipaddress.ip_address(cleaned)
+            return True
+        except ValueError:
+            return False
+        
+    # Check if valid IPv6 address
+    try:
+        ipaddress.ip_address(cleaned)
+        return True
+    except ValueError:
+        pass
+
     pattern = re.compile(
         r'^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+'
         r'([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$'
     )
-    return bool(pattern.match(domain))
+    return bool(pattern.match(cleaned))
+
+def resolve_domain_ips(hostname: str) -> List[str]:
+    """
+    Resolves a domain or subdomain hostname to its IPv4 addresses using DNS lookup.
+    
+    Args:
+        hostname (str): The domain or subdomain to resolve.
+        
+    Returns:
+        list: List of unique IPv4 address strings resolved via DNS.
+    """
+    # Clean hostname of protocols and trailing slashes
+    clean_host = hostname.strip().replace("http://", "").replace("https://", "").rstrip("/")
+    try:
+        _, _, ip_list = socket.gethostbyname_ex(clean_host)
+        return [ip for ip in ip_list if ip]
+    except (socket.gaierror, socket.herror, OSError):
+        return []
 
 def submit_to_urlscan(
     url: str, 
@@ -529,51 +570,104 @@ def main() -> None:
     Main entry point for the CLI tool. Parses arguments, generates the Cartesian 
     product of all requested domains, and dispatches them to urlscan.io.
     """
-    parser = argparse.ArgumentParser(description="Automate urlscan.io domain submissions for malware analysis.")
-    
-    parser.add_argument("-c", "--config", "-⚙", help="Path to JSON/YAML config file (e.g., .urlscan-config.json)")
+    parser = argparse.ArgumentParser(
+        prog="urlscan-submit",
+        description=(
+            "===============================================================\n"
+            " urlscan-submit: High-Performance Domain Submission & Recon CLI\n"
+            "===============================================================\n"
+            "Automates URL submission to urlscan.io for security analysis, phishing triage,\n"
+            "and reconnaissance with rate-limit evasion, multi-threading, and Cartesian matrix\n"
+            "generation."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+examples:
+  # Quick single domain scan (defaults to https and root subdomain):
+  urlscan-submit -d example.com
 
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("-d", "--domain", "-🎯", help="A single base domain to scan (e.g., example.com)")
-    group.add_argument("-f", "--file", "-📁", help="Path to a text file containing a list of domains (one per line)")
+  # Submit direct IP address with both HTTP and HTTPS variants:
+  urlscan-submit -d 123.21.33.22 -p both
+
+  # Recon matrix including exploratory subdomains AND their resolved IP addresses:
+  urlscan-submit -d target.com -p both -s both -x -I
+
+  # High-speed bulk submission from file using 10 concurrent threads:
+  urlscan-submit -f domains.txt -w 10 -I
+
+  # Private submission with delay floor, custom tags, and CSV summary export:
+  urlscan-submit -f targets.txt -V private --delay 1.5 --tags "incident-404,redteam" -e summary.csv -r
+
+configuration & api key priority:
+  1. CLI parameter: --api-key-file <path>
+  2. Config file: -c / --config <path> (or .urlscan-config.json / .urlscan-config.yaml)
+  3. Environment variable: URLSCAN_API_KEY
+  4. Local file: ./api_key.txt
+"""
+    )
     
-    parser.add_argument("--delay", "-🐢", type=float, default=0.0, metavar="SECONDS",
-                        help="Add an intentional delay between dispatches to fly under the radar (default: 0)")
-    
-    parser.add_argument("-e", "--export-csv", "-📊", metavar="FILE",
-                        help="Export summary results to a CSV file (forces --report behavior)")
-    parser.add_argument("-j", "--json-log", "-📜", metavar="FILE",
-                        help="Export full raw results to a JSON file (forces --report behavior)")
-    parser.add_argument("-k", "--api-key-file", "-🔑", help="Path to a file containing the urlscan.io API key")
-    
-    parser.add_argument("-p", "--protocols", "-🌐", choices=["http", "https", "both"],
-                        help="Protocols to use (overrides config, default: https)")
-    parser.add_argument("-r", "--report", "-📝", action="store_true",
-                        help="Wait for the scan to complete and fetch a summary report")
-    parser.add_argument("-s", "--subdomains", "-🏢", choices=["root", "www", "both"],
-                        help="Subdomains to include: root, www, or both (overrides config, default: root)")
-    
-    parser.add_argument("-v", "--verbose", "-🔊", action="store_true",
-                        help="Enable verbose output for debugging HTTP requests")
-    parser.add_argument("-V", "--visibility", "-👻", choices=["public", "unlisted", "private"],
-                        help="Visibility of the scan (overrides config, default: public)")
-    parser.add_argument("-w", "--workers", "-🚀", type=int, default=1, metavar="N",
-                        help="Number of concurrent workers for parallel scanning (default: 1)")
-    parser.add_argument("--wordlist", "-📖", metavar="FILE",
-                        help="Path to a custom wordlist of subdomains to use for exhaustive generation")
-    parser.add_argument("-x", "--explore", "-🔍", action="store_true",
-                        help="Submit a list of 20 common exploratory subdomains (ftp, mail, admin, etc.)")
-    parser.add_argument("-xx", "--deep-explore", "-🤿", action="store_true",
-                        help="Submit an expanded list of 60+ common exploratory subdomains")
-    parser.add_argument("-xxx", "--massive-explore", "-🌌", action="store_true",
-                        help="Submit a massive list of 140+ exploratory subdomains")
-    
+    # Input targets (mutually exclusive)
+    target_group = parser.add_argument_group("Target Specification (Required - choose one)")
+    target_mut = target_group.add_mutually_exclusive_group(required=True)
+    target_mut.add_argument("-d", "--domain", metavar="DOMAIN",
+                            help="Single target domain, hostname, or IP address (e.g. example.com or 123.21.33.22)")
+    target_mut.add_argument("-f", "--file", metavar="FILE",
+                            help="Path to line-delimited text file containing target domains or IP addresses")
+
+    # Reconnaissance & Scope
+    recon_group = parser.add_argument_group("Reconnaissance & Matrix Generation")
+    recon_group.add_argument("-p", "--protocols", choices=["http", "https", "both"], default=None,
+                             help="Protocols to generate in matrix (default: https)")
+    recon_group.add_argument("-s", "--subdomains", choices=["root", "www", "both"], default=None,
+                             help="Base subdomains to include (default: root)")
+    recon_group.add_argument("-x", "--explore", action="store_true",
+                             help="Enumerate +20 common subdomains (ftp, mail, admin, api, etc.)")
+    recon_group.add_argument("-xx", "--deep-explore", action="store_true",
+                             help="Enumerate +60 deep reconnaissance subdomains (auth, sso, git, etc.)")
+    recon_group.add_argument("-xxx", "--massive-explore", action="store_true",
+                             help="Enumerate +140 massive reconnaissance subdomains (cloud, db, k8s, etc.)")
+    recon_group.add_argument("--wordlist", metavar="FILE",
+                             help="Path to custom subdomains wordlist for custom matrix generation")
+    recon_group.add_argument("-I", "--resolve-ips", "--submit-ips", action="store_true",
+                             help="Resolve DNS A-records for subdomains and also submit their IP addresses (http://<ip>/ and https://<ip>/)")
+
+    # Concurrency, Timing & Evasion
+    perf_group = parser.add_argument_group("Concurrency & Timing")
+    perf_group.add_argument("-w", "--workers", type=int, default=1, metavar="N",
+                            help="Number of concurrent worker threads (default: 1)")
+    perf_group.add_argument("--delay", type=float, default=0.0, metavar="SECONDS",
+                            help="Intentional delay floor in seconds between worker dispatches (default: 0.0)")
+
+    # Output & Reporting
+    out_group = parser.add_argument_group("Output & Reporting")
+    out_group.add_argument("-r", "--report", action="store_true",
+                           help="Wait for scan completion and display summary report")
+    out_group.add_argument("-e", "--export-csv", metavar="FILE",
+                           help="Export formatted scan summary to CSV file (forces report polling)")
+    out_group.add_argument("-j", "--json-log", metavar="FILE",
+                           help="Export full raw JSON API responses to file (forces report polling)")
+    out_group.add_argument("-v", "--verbose", action="store_true",
+                           help="Enable verbose HTTP request/response debugging output")
+
+    # Authentication & Config
+    auth_group = parser.add_argument_group("Authentication & Configuration")
+    auth_group.add_argument("-k", "--api-key-file", metavar="FILE",
+                            help="Path to file containing urlscan.io API key")
+    auth_group.add_argument("-c", "--config", metavar="FILE",
+                            help="Path to custom JSON/YAML configuration file")
+    auth_group.add_argument("-V", "--visibility", choices=["public", "unlisted", "private"], default=None,
+                            help="Scan visibility on urlscan.io (default: public)")
+
     # Advanced API Parameters
     api_group = parser.add_argument_group("Advanced API Parameters")
-    api_group.add_argument("--tags", "-🏷", help="Comma-separated list of tags to apply to the scan (max 10)")
-    api_group.add_argument("--user-agent", "-🤖", help="Override the default User-Agent string for the scan")
-    api_group.add_argument("--referer", "-🔗", help="Override the HTTP Referer header for the scan")
-    api_group.add_argument("--country", "-🌍", help="2-letter ISO country code to scan from (e.g., us, de)")
+    api_group.add_argument("--tags", metavar="TAGS",
+                           help="Comma-separated custom tags (e.g. 'phishing,redteam', max 10)")
+    api_group.add_argument("--user-agent", metavar="UA",
+                           help="Override default User-Agent browser string")
+    api_group.add_argument("--referer", metavar="URL",
+                           help="Override HTTP Referer header sent during scan")
+    api_group.add_argument("--country", metavar="CC",
+                           help="2-letter ISO country code to scan from (e.g. us, de, jp)")
 
     args = parser.parse_args()
 
@@ -585,6 +679,7 @@ def main() -> None:
     args.subdomains = args.subdomains or config.get("subdomains") or "root"
     args.visibility = args.visibility or config.get("visibility") or "public"
     args.explore = args.explore or config.get("explore", False)
+    args.resolve_ips = args.resolve_ips or config.get("resolve_ips", False) or config.get("submit_ips", False)
     args.api_key_file = args.api_key_file or config.get("api_key_file")
 
     api_key = None
@@ -625,8 +720,9 @@ def main() -> None:
 
     domains = []
     if args.domain:
-        if is_valid_domain(args.domain):
-            domains.append(args.domain)
+        clean_d = args.domain.strip().replace("http://", "").replace("https://", "").rstrip("/")
+        if is_valid_domain(clean_d):
+            domains.append(clean_d)
         else:
             print(f"Error: '{args.domain}' is not a valid domain format.")
             return
@@ -634,7 +730,7 @@ def main() -> None:
         try:
             with open(args.file, "r") as f:
                 for line in f:
-                    d = line.strip()
+                    d = line.strip().replace("http://", "").replace("https://", "").rstrip("/")
                     if d and not d.startswith("#"):
                         if is_valid_domain(d):
                             domains.append(d)
@@ -692,11 +788,42 @@ def main() -> None:
     prefixes = list(dict.fromkeys(prefixes))
 
     urls_to_scan = []
-    # 3. Assemble the final Cartesian matrix
+    resolved_ips = set()
+
+    # 3. Assemble the final Cartesian matrix (including direct IPs and resolved subdomain IPs)
     for domain in domains:
-        for proto in protocols:
+        # Check if target is directly an IP address
+        is_ip = False
+        try:
+            ipaddress.ip_address(domain)
+            is_ip = True
+        except ValueError:
+            is_ip = False
+
+        if is_ip:
+            # Direct IP submission format: http://123.21.33.22/ and/or https://123.21.33.22/
+            for proto in protocols:
+                urls_to_scan.append(f"{proto}{domain}/")
+        else:
             for prefix in prefixes:
-                urls_to_scan.append(f"{proto}{prefix}{domain}")
+                fqdn = f"{prefix}{domain}"
+                for proto in protocols:
+                    urls_to_scan.append(f"{proto}{fqdn}")
+                
+                if args.resolve_ips:
+                    ips = resolve_domain_ips(fqdn)
+                    for ip in ips:
+                        resolved_ips.add(ip)
+
+    # Append resolved IPs as http://<ip>/ and https://<ip>/ URLs
+    if args.resolve_ips and resolved_ips:
+        print(f"[*] Resolved {len(resolved_ips)} unique IP address(es) from target subdomains.")
+        for ip in sorted(resolved_ips):
+            for proto in protocols:
+                urls_to_scan.append(f"{proto}{ip}/")
+
+    # Deduplicate while preserving order
+    urls_to_scan = list(dict.fromkeys(urls_to_scan))
 
     print(f"\n{Colors.OKCYAN}[*] Generated {len(urls_to_scan)} URL(s) total to scan.{Colors.ENDC}")
 
@@ -727,6 +854,8 @@ def main() -> None:
         tags_list.append("recon-massive")
     if args.wordlist:
         tags_list.append("custom-wordlist")
+    if args.resolve_ips:
+        tags_list.append("resolve-ips")
         
     # Unique tags, capped at maximum 10 permitted by urlscan.io
     tags_list = list(dict.fromkeys(tags_list))[:10]
