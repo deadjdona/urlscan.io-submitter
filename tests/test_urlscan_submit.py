@@ -85,12 +85,17 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertEqual(extract_tld("example.com"), "com")
         self.assertEqual(extract_tld("sub.example.org"), "org")
         self.assertEqual(extract_tld("https://portal.service.io/"), "io")
+        self.assertEqual(extract_tld("api.internal.bank.co.uk"), "uk")
         self.assertIsNone(extract_tld("123.21.33.22"))
         self.assertIsNone(extract_tld("localhost"))
 
         self.assertEqual(extract_apex_domain("example.com"), "example.com")
         self.assertEqual(extract_apex_domain("api.sub.example.org"), "example.org")
+        self.assertEqual(extract_apex_domain("api.internal.bank.co.uk"), "bank.co.uk")
+        self.assertEqual(extract_apex_domain("agency.gov.ru"), "agency.gov.ru")
+        self.assertEqual(extract_apex_domain("sub.domain.com.au"), "domain.com.au")
         self.assertIsNone(extract_apex_domain("123.21.33.22"))
+        self.assertIsNone(extract_apex_domain("2001:db8::1"))
 
     def test_generate_tags_for_url_domain(self):
         tags = generate_tags_for_url(
@@ -878,6 +883,13 @@ class TestUrlscanSubmit(unittest.TestCase):
                     {"href": "https://linked-one.org/login", "text": "Login"},
                     {"href": "http://123.21.33.22/admin"},
                     "https://direct-string-link.com/home",
+                    "//proto-rel.com/api",
+                    {"href": "index.html"},
+                    {"href": "/about/us"},
+                    {"href": "style.css"},
+                    {"href": "#top"},
+                    {"href": "javascript:void(0)"},
+                    {"href": "https://256.256.256.256"},
                     {"href": ""}  # empty
                 ],
                 "requests": [
@@ -896,11 +908,15 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertIn("linked-one.org", discovered)
         self.assertIn("123.21.33.22", discovered)
         self.assertIn("direct-string-link.com", discovered)
+        self.assertIn("proto-rel.com", discovered)
         self.assertIn("req-doc.net", discovered)
         self.assertIn("res-url.io", discovered)
         self.assertIn("contacted-domain.biz", discovered)
         self.assertIn("example.com", discovered)
         self.assertIn("url-in-list.com", discovered)
+        self.assertNotIn("index.html", discovered)
+        self.assertNotIn("style.css", discovered)
+        self.assertNotIn("256.256.256.256", discovered)
 
     def test_extract_linked_domains_empty_and_invalid(self):
         self.assertEqual(extract_linked_domains(None), [])
@@ -925,17 +941,19 @@ class TestUrlscanSubmit(unittest.TestCase):
         # Mock submit returning UUIDs
         mock_submit.side_effect = [
             {"uuid": "uuid-level0"},
-            {"uuid": "uuid-level1-a"}
+            {"uuid": "uuid-level1-a"},
+            {"uuid": "uuid-level1-b"}
         ]
-        # Mock scan report discovering a new linked domain
+        # Mock scan report discovering a new linked domain and IP
         mock_report.return_value = {
             "data": {
                 "links": [
-                    {"href": "https://discovered-partner.com/portal"}
+                    {"href": "https://discovered-partner.com/portal"},
+                    {"href": "http://93.184.216.34/api"}
                 ]
             },
             "lists": {
-                "domains": ["discovered-partner.com"]
+                "domains": ["discovered-partner.com", "93.184.216.34"]
             }
         }
 
@@ -957,6 +975,7 @@ class TestUrlscanSubmit(unittest.TestCase):
         submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
         self.assertIn("https://rootdomain.com", submitted_urls)
         self.assertIn("https://discovered-partner.com", submitted_urls)
+        self.assertIn("https://93.184.216.34/", submitted_urls)
 
     @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
     @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-0"})
@@ -1171,6 +1190,202 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertTrue(mock_submit.called)
         self.assertTrue(mock_export_csv.called)
         self.assertTrue(mock_export_json.called)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ipv6"})
+    @patch('time.sleep')
+    def test_main_ipv6_direct_submission(self, mock_sleep, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', '2001:db8::1', '-p', 'both']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        self.assertEqual(mock_submit.call_count, 2)
+        urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://[2001:db8::1]/", urls)
+        self.assertIn("http://[2001:db8::1]/", urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-cfg"})
+    @patch('time.sleep')
+    def test_main_expanded_config_keys(self, mock_sleep, mock_submit, mock_user_info):
+        config_data = {
+            "country": "de",
+            "user_agent": "CustomAgent/1.0",
+            "referer": "https://referrer.example",
+            "tags": ["cfg-tag1", "cfg-tag2"],
+            "workers": 3,
+            "delay": 0.5,
+            "deep_explore": True
+        }
+        cli_args = ['urlscan-submit', '-d', 'testtarget.com']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value=config_data):
+                    with patch('urlscan_submit.print'):
+                        main()
+        self.assertTrue(mock_submit.called)
+        _, kwargs = mock_submit.call_args
+        self.assertEqual(kwargs.get("country"), "de")
+        self.assertEqual(kwargs.get("customagent"), "CustomAgent/1.0")
+        self.assertEqual(kwargs.get("referer"), "https://referrer.example")
+        self.assertIn("cfg-tag1", kwargs.get("tags"))
+        self.assertIn("cfg-tag2", kwargs.get("tags"))
+
+        # Also test tags specified as a comma-separated string in config
+        config_data_str = {"tags": "str-tag1,str-tag2"}
+        config_data_str = {"tags": "str-tag1,str-tag2", "protocols": "http"}
+        with patch('sys.argv', ['urlscan-submit', '-d', 'testtarget.com']):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value=config_data_str):
+                    with patch('urlscan_submit.print'):
+                        main()
+        _, kwargs2 = mock_submit.call_args
+        args_tuple, kwargs2 = mock_submit.call_args
+        self.assertEqual(args_tuple[0], "http://testtarget.com")
+        self.assertIn("str-tag1", kwargs2.get("tags"))
+        self.assertIn("str-tag2", kwargs2.get("tags"))
+
+        # Test config with https=True and http=True
+        mock_submit.reset_mock()
+        with patch('sys.argv', ['urlscan-submit', '-d', 'testtarget.com']):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={"https": True, "http": True}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        self.assertEqual(mock_submit.call_count, 2)
+
+        # Test config with http=True only
+        mock_submit.reset_mock()
+        with patch('sys.argv', ['urlscan-submit', '-d', 'testtarget.com']):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={"http": True}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        self.assertEqual(mock_submit.call_args[0][0], "http://testtarget.com")
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-delay"})
+    @patch('time.sleep')
+    def test_main_delay_zero_does_not_sleep(self, mock_sleep, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--delay', '0.0']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        mock_sleep.assert_not_called()
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-nohttps"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
+    @patch('time.sleep')
+    def test_main_submit_ips_without_https(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--submit-ips']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("http://1.2.3.4/", submitted_urls)
+        self.assertNotIn("https://1.2.3.4/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-https"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
+    @patch('time.sleep')
+    def test_main_submit_ips_with_https_flag(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--submit-ips', '--https']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("http://1.2.3.4/", submitted_urls)
+        self.assertIn("https://1.2.3.4/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-p-https"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
+    @patch('time.sleep')
+    def test_main_submit_ips_with_protocols_https(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--submit-ips', '-p', 'https']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("http://1.2.3.4/", submitted_urls)
+        self.assertIn("https://1.2.3.4/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-http"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
+    @patch('time.sleep')
+    def test_main_submit_ips_with_http_flag(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--submit-ips', '--http']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("http://example.com", submitted_urls)
+        self.assertIn("http://1.2.3.4/", submitted_urls)
+        self.assertNotIn("https://1.2.3.4/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-alias"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
+    @patch('time.sleep')
+    def test_main_submit_ips_aliases(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        for alias in ['--submit-domain-ips', '--domain-ips', '--ips', '--ip']:
+            mock_submit.reset_mock()
+            cli_args = ['urlscan-submit', '-d', 'example.com', alias]
+            with patch('sys.argv', cli_args):
+                with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                    with patch('urlscan_submit.load_config', return_value={}):
+                        with patch('urlscan_submit.print'):
+                            main()
+            submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+            self.assertIn("http://1.2.3.4/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-proto-flags"})
+    @patch('time.sleep')
+    def test_main_http_and_https_flag_combinations(self, mock_sleep, mock_submit, mock_user_info):
+        # Both --http and --https
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--http', '--https']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("http://example.com", submitted_urls)
+        self.assertIn("https://example.com", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-ipv6"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['2001:db8::1'])
+    @patch('time.sleep')
+    def test_main_submit_ips_ipv6_bracket_formatting(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--submit-ips', '--https']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("http://[2001:db8::1]/", submitted_urls)
+        self.assertIn("https://[2001:db8::1]/", submitted_urls)
 
     def test_module_main_invocation(self):
         import runpy

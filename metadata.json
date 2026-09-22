@@ -1,8 +1,6 @@
 {
-  "name": "urlscan.io script",
-  "description": "",
+  "name": "urlscan-submitter",
+  "description": "High-performance domain submission and reconnaissance engine for urlscan.io",
   "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }

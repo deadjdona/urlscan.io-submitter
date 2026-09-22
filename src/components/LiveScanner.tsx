@@ -119,6 +119,7 @@ export default function LiveScanner() {
   const [delay, setDelay] = useState<number>(0.5);
   const [tagsInput, setTagsInput] = useState<string>('pages-dev-recon');
   const [country, setCountry] = useState<string>('');
+  const [resolveIps, setResolveIps] = useState<boolean>(false);
   const [engine, setEngine] = useState<EngineMode>('simulation');
 
   // ========== TARGET INPUT STATE ==========
@@ -214,8 +215,8 @@ export default function LiveScanner() {
    * Shows user the total scan count before submission
    */
   const matrixCount = useMemo(() => {
-    return expandTargetMatrix(rawTargets, protocols, subdomains, explore).length;
-  }, [rawTargets, protocols, subdomains, explore]);
+    return expandTargetMatrix(rawTargets, protocols, subdomains, explore, resolveIps).length;
+  }, [rawTargets, protocols, subdomains, explore, resolveIps]);
 
   /**
    * Apply search and status filters to results for table display
@@ -348,6 +349,7 @@ export default function LiveScanner() {
       delay,
       tags: tagsInput.split(',').map((t) => t.trim()).filter(Boolean),
       country: country.trim() || undefined,
+      resolveIps,
       engine,
     };
 
@@ -367,7 +369,7 @@ export default function LiveScanner() {
       // BACKEND RUNNER MODE (SSE)
       try {
         appendLog('info', `🌐 Starting backend scan session on server via SSE...`);
-        const expanded = expandTargetMatrix(rawTargets, protocols, subdomains, explore);
+        const expanded = expandTargetMatrix(rawTargets, protocols, subdomains, explore, resolveIps);
         const session = await startBackendScan(config, expanded);
         backendSessionIdRef.current = session.sessionId;
 
@@ -950,6 +952,24 @@ export default function LiveScanner() {
                   disabled={isRunning}
                   className="w-full text-xs p-2.5 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
+              </div>
+
+              {/* Submit Domain IPs (-I / --submit-ips) */}
+              <div className="flex flex-col justify-center">
+                <label className="text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+                  <Globe size={13} className="text-purple-500" />
+                  Submit Domain IPs (-I / --submit-ips)
+                </label>
+                <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={resolveIps}
+                    onChange={(e) => setResolveIps(e.target.checked)}
+                    disabled={isRunning}
+                    className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500"
+                  />
+                  <span>Submit resolved IP URLs (HTTP + HTTPS if HTTPS active)</span>
+                </label>
               </div>
             </div>
 

@@ -36,7 +36,9 @@ import os
 import re
 import socket
 import sys
+import threading
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 from typing import List, Dict, Optional, Any, Union, Set
@@ -186,7 +188,8 @@ DEEP_SUBDOMAINS: List[str] = COMMON_SUBDOMAINS + [
     "news", "cdn", "static", "assets", "images", "media", "video", 
     "beta", "alpha", "prod", "qa", "uat", "demo", "sandbox",
     "partner", "client", "customer", "member", "internal", "intranet",
-    "git", "svn", "jira", "confluence", "jenkins", "gitlab", "stats"
+    "git", "svn", "jira", "confluence", "jenkins", "gitlab", "stats",
+    "k8s", "vault"
 ]
 
 # Level 3 Massive Recon (-xxx / --massive-explore): 140+ enterprise, cloud, DB & regional endpoints
@@ -263,13 +266,34 @@ def resolve_domain_ips(hostname: str) -> List[str]:
     except (socket.gaierror, socket.herror, OSError):
         return []
 
+# Well-known multi-part second-level domain suffixes (e.g. .co.uk, .gov.ru)
+MULTI_PART_TLDS: Set[str] = {
+    "co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk", "net.uk", "sch.uk", "ltd.uk", "plc.uk",
+    "gov.ru", "com.ru", "org.ru", "net.ru", "edu.ru", "mil.ru",
+    "com.au", "net.au", "org.au", "edu.au", "gov.au", "id.au", "asn.au",
+    "co.nz", "org.nz", "net.nz", "govt.nz", "ac.nz", "geek.nz", "gen.nz",
+    "co.jp", "ne.jp", "or.jp", "go.jp", "ac.jp", "ed.jp", "lg.jp",
+    "com.br", "org.br", "gov.br", "net.br", "edu.br", "mil.br", "art.br",
+    "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "mil.cn",
+    "co.in", "net.in", "org.in", "gen.in", "firm.in", "ind.in", "nic.in", "ac.in", "edu.in", "gov.in",
+    "com.mx", "org.mx", "net.mx", "edu.mx", "gob.mx",
+    "co.za", "org.za", "net.za", "gov.za", "ac.za", "edu.za",
+    "com.sg", "org.sg", "net.sg", "edu.sg", "gov.sg", "per.sg",
+    "com.tr", "org.tr", "net.tr", "edu.tr", "gov.tr", "bel.tr", "pol.tr",
+    "com.tw", "org.tw", "net.tw", "edu.tw", "gov.tw", "idv.tw",
+    "gc.ca", "fed.us"
+}
+
 def extract_hostname(url_or_domain: str) -> str:
     """
     Extracts the clean, normalized hostname or IP from a URL or domain string.
+    Supports standard hostnames, IPv4, and RFC 3986 bracketed IPv6 addresses.
     """
     clean = url_or_domain.strip().replace("http://", "").replace("https://", "").rstrip("/")
     if "/" in clean:
         clean = clean.split("/")[0]
+    if clean.startswith("[") and "]" in clean:
+        return clean[1:clean.index("]")].lower()
     if ":" in clean:
         clean = clean.split(":")[0]
     return clean.lower()
@@ -296,11 +320,12 @@ def extract_tld(hostname: str) -> Optional[str]:
     Extracts the top-level domain (e.g. 'com', 'org', 'io', 'net') from a domain or hostname.
     Returns None if the hostname is an IP address or does not have a TLD.
     """
-    clean = hostname.strip().replace("http://", "").replace("https://", "").rstrip("/")
-    if "/" in clean:
-        clean = clean.split("/")[0]
-    if ":" in clean:
-        clean = clean.split(":")[0]
+    clean = extract_hostname(hostname)
+    try:
+        ipaddress.ip_address(clean)
+        return None
+    except ValueError:
+        pass
     parts = clean.split(".")
     if len(parts) >= 2 and not all(p.isdigit() for p in parts):
         return parts[-1].lower()
@@ -308,16 +333,19 @@ def extract_tld(hostname: str) -> Optional[str]:
 
 def extract_apex_domain(hostname: str) -> Optional[str]:
     """
-    Extracts the apex domain (e.g. 'example.com') from a domain or hostname.
+    Extracts the apex domain (e.g. 'example.com' or 'bank.co.uk') from a domain or hostname.
     Returns None if the hostname is an IP address.
     """
-    clean = hostname.strip().replace("http://", "").replace("https://", "").rstrip("/")
-    if "/" in clean:
-        clean = clean.split("/")[0]
-    if ":" in clean:
-        clean = clean.split(":")[0]
+    clean = extract_hostname(hostname)
+    try:
+        ipaddress.ip_address(clean)
+        return None
+    except ValueError:
+        pass
     parts = clean.split(".")
     if len(parts) >= 2 and not all(p.isdigit() for p in parts):
+        if len(parts) >= 3 and ".".join(parts[-2:]).lower() in MULTI_PART_TLDS:
+            return ".".join(parts[-3:]).lower()
         return ".".join(parts[-2:]).lower()
     return None
 
@@ -477,20 +505,38 @@ def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
 
     discovered = set()
 
-    def clean_target(t: Any) -> Optional[str]:
+    def clean_target(t: Any, is_raw_domain: bool = False) -> Optional[str]:
         if not t or not isinstance(t, str):
             return None
-        c = t.strip().replace("http://", "").replace("https://", "").rstrip("/")
-        if "/" in c:
-            c = c.split("/")[0]
-        if ":" in c:
-            c = c.split(":")[0]
-        c = c.lower()
-        if is_valid_domain(c):
-            return c
+        t = t.strip()
+        if not t:
+            return None
+
+        # For URLs (DOM links, requests, lists.urls)
+        if not is_raw_domain:
+            # Ignore non-HTTP URI schemes or anchor fragments
+            if t.startswith(("#", "javascript:", "mailto:", "data:", "tel:", "blob:")):
+                return None
+            
+            # Must be an absolute URL or protocol-relative URL to extract an external domain
+            if t.startswith("//"):
+                parsed = urllib.parse.urlsplit("http:" + t)
+                host = parsed.netloc
+            elif t.startswith(("http://", "https://")):
+                parsed = urllib.parse.urlsplit(t)
+                host = parsed.netloc
+            else:
+                # Relative URL like 'index.html', '/about', 'style.css'
+                return None
+        else:
+            host = t
+
+        clean = extract_hostname(host)
+        if is_valid_domain(clean):
+            return clean
         try:
-            ipaddress.ip_address(c)
-            return c
+            ipaddress.ip_address(clean)
+            return clean
         except ValueError:
             return None
 
@@ -502,11 +548,11 @@ def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
             for item in links:
                 if isinstance(item, dict):
                     href = item.get("href") or item.get("url") or ""
-                    clean = clean_target(href)
+                    clean = clean_target(href, is_raw_domain=False)
                     if clean:
                         discovered.add(clean)
                 elif isinstance(item, str):
-                    clean = clean_target(item)
+                    clean = clean_target(item, is_raw_domain=False)
                     if clean:
                         discovered.add(clean)
 
@@ -518,7 +564,7 @@ def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
                     req_obj = req.get("request", {})
                     if isinstance(req_obj, dict):
                         doc_url = req_obj.get("documentURL") or req_obj.get("url") or ""
-                        clean = clean_target(doc_url)
+                        clean = clean_target(doc_url, is_raw_domain=False)
                         if clean:
                             discovered.add(clean)
                     res_obj = req.get("response", {})
@@ -526,7 +572,7 @@ def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
                         res_sub = res_obj.get("response", {})
                         if isinstance(res_sub, dict):
                             res_url = res_sub.get("url") or ""
-                            clean = clean_target(res_url)
+                            clean = clean_target(res_url, is_raw_domain=False)
                             if clean:
                                 discovered.add(clean)
 
@@ -536,14 +582,14 @@ def extract_linked_domains(report: Optional[Dict[str, Any]]) -> List[str]:
         domain_list = lists.get("domains")
         if isinstance(domain_list, list):
             for d in domain_list:
-                clean = clean_target(d)
+                clean = clean_target(d, is_raw_domain=True)
                 if clean:
                     discovered.add(clean)
 
         url_list = lists.get("urls")
         if isinstance(url_list, list):
             for u in url_list:
-                clean = clean_target(u)
+                clean = clean_target(u, is_raw_domain=False)
                 if clean:
                     discovered.add(clean)
 
@@ -563,7 +609,8 @@ def submit_to_urlscan(
     customagent: Optional[str] = None, 
     referer: Optional[str] = None, 
     country: Optional[str] = None,
-    unresolvable_hosts: Optional[Set[str]] = None
+    unresolvable_hosts: Optional[Set[str]] = None,
+    unresolvable_lock: Optional[Any] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Submits a URL to urlscan.io using their /api/v1/scan endpoint.
@@ -667,7 +714,11 @@ def submit_to_urlscan(
                 if "dns error" in err_str or "could not resolve domain" in err_str or "nxdomain" in err_str:
                     host = extract_hostname(url)
                     if unresolvable_hosts is not None:
-                        unresolvable_hosts.add(host)
+                        if unresolvable_lock is not None:
+                            with unresolvable_lock:
+                                unresolvable_hosts.add(host)
+                        else:
+                            unresolvable_hosts.add(host)
                 return None
             elif e.code in (401, 403):
                 print(f"{Colors.FAIL}[-] Auth Error ({e.code}). Please verify your URLSCAN_API_KEY. Message: {error_msg}{Colors.ENDC}")
@@ -881,7 +932,8 @@ def load_config(config_arg: Optional[str] = None) -> Dict[str, Any]:
             ".urlscan-config.yaml",
             ".urlscan-config.yml",
             os.path.expanduser("~/.urlscan-config.json"),
-            os.path.expanduser("~/.urlscan-config.yaml")
+            os.path.expanduser("~/.urlscan-config.yaml"),
+            os.path.expanduser("~/.urlscan-config.yml")
         ]
 
     for path in config_paths:
@@ -1013,8 +1065,8 @@ configuration & api key priority:
                         help="📊 Export formatted scan summary to CSV file (forces report polling)")
     target_mut.add_argument("-f", "--file", "-📁", metavar="FILE",
                             help="📁 Path to line-delimited text file containing target domains or IP addresses")
-    parser.add_argument("-I", "--resolve-ips", "--submit-ips", "-🔎", action="store_true",
-                        help="🔎 Resolve DNS A-records for subdomains and also submit their IP addresses (http://<ip>/ and https://<ip>/)")
+    parser.add_argument("-I", "--resolve-ips", "--submit-ips", "--submit-domain-ips", "--domain-ips", "--ips", "--ip", "-🔎", action="store_true",
+                        help="🔎 Resolve DNS A-records for domains/subdomains and submit their direct IP addresses (submits http://<ip>/; also submits https://<ip>/ if https parameter is provided)")
     parser.add_argument("-j", "--json-log", "-📜", metavar="FILE",
                         help="📜 Export full raw JSON API responses to file (forces report polling)")
     parser.add_argument("-k", "--api-key-file", "-🔑", metavar="FILE",
@@ -1022,7 +1074,11 @@ configuration & api key priority:
     parser.add_argument("--max-links", "-📎", type=int, default=10, metavar="N",
                         help="📎 Maximum number of discovered linked domains to follow per scan in recursive mode (default: 10)")
     parser.add_argument("-p", "--protocols", "-🌐", choices=["http", "https", "both"], default=None,
-                        help="🌐 Protocols to generate in matrix (default: https)")
+                        help="🌐 Protocols to generate in matrix: http, https, or both (default: https)")
+    parser.add_argument("--https", action="store_true", default=None,
+                        help="🔒 Target HTTPS protocol (when submitting domain IPs, submits both HTTP and HTTPS variants)")
+    parser.add_argument("--http", action="store_true", default=None,
+                        help="🔓 Target HTTP protocol only")
     parser.add_argument("-r", "--report", "-📝", action="store_true",
                         help="📝 Wait for scan completion and display summary report")
     parser.add_argument("-R", "--recursive", "--recursion", "-🕸", type=int, default=0, metavar="DEPTH",
@@ -1057,15 +1113,70 @@ configuration & api key priority:
     config = load_config(args.config)
 
     # Resolve settings (CLI > Config > Defaults)
-    args.protocols = args.protocols or config.get("protocols") or "https"
+    args.resolve_ips = (
+        args.resolve_ips 
+        or config.get("resolve_ips", False) 
+        or config.get("submit_ips", False)
+        or config.get("submit_domain_ips", False)
+        or config.get("domain_ips", False)
+        or config.get("ips", False)
+        or config.get("ip", False)
+    )
     args.subdomains = args.subdomains or config.get("subdomains") or "root"
     args.visibility = args.visibility or config.get("visibility") or "public"
     args.explore = args.explore or config.get("explore", False)
-    args.resolve_ips = args.resolve_ips or config.get("resolve_ips", False) or config.get("submit_ips", False)
+
+    # Check if https parameter was explicitly provided via CLI flag, -p / --protocols, or config
+    https_provided = (
+        args.https is True
+        or (args.protocols is not None and args.protocols in ("https", "both"))
+        or bool(config.get("https"))
+        or (config.get("protocols") in ("https", "both"))
+    )
+
+    # Determine domain protocol mode
+    if args.protocols:
+        resolved_proto = args.protocols
+    elif args.https and args.http:
+        resolved_proto = "both"
+    elif args.https:
+        resolved_proto = "https"
+    elif args.http:
+        resolved_proto = "http"
+    elif config.get("protocols"):
+        resolved_proto = config.get("protocols")
+    elif config.get("https") and config.get("http"):
+        resolved_proto = "both"
+    elif config.get("https"):
+        resolved_proto = "https"
+    elif config.get("http"):
+        resolved_proto = "http"
+    else:
+        resolved_proto = "https"
+    args.protocols = resolved_proto
     args.dns_precheck = args.dns_precheck or config.get("dns_precheck", False)
     args.api_key_file = args.api_key_file or config.get("api_key_file")
     args.recursive = args.recursive if args.recursive is not None and args.recursive > 0 else (config.get("recursive") or config.get("recursion_depth") or 0)
     args.max_links = args.max_links or config.get("max_links", 10)
+    args.country = args.country or config.get("country")
+    args.user_agent = args.user_agent or config.get("user_agent") or config.get("customagent")
+    args.referer = args.referer or config.get("referer")
+    if not args.tags and config.get("tags"):
+        cfg_tags = config.get("tags")
+        if isinstance(cfg_tags, list):
+            args.tags = ",".join(str(t) for t in cfg_tags)
+        elif isinstance(cfg_tags, str):
+            args.tags = cfg_tags
+    if args.workers == 1 and config.get("workers"):
+        args.workers = int(config.get("workers"))
+    if args.delay == 0.0 and config.get("delay") is not None:
+        args.delay = float(config.get("delay"))
+    args.wordlist = args.wordlist or config.get("wordlist")
+    args.deep_explore = args.deep_explore or config.get("deep_explore", False)
+    args.massive_explore = args.massive_explore or config.get("massive_explore", False)
+    args.report = args.report or config.get("report", False)
+    args.export_csv = args.export_csv or config.get("export_csv")
+    args.json_log = args.json_log or config.get("json_log")
 
     api_key = None
     if args.api_key_file:
@@ -1186,10 +1297,12 @@ configuration & api key priority:
             is_ip = False
 
         if is_ip:
-            # Direct IP submission format: http://123.21.33.22/ and/or https://123.21.33.22/
+            # Direct IP submission format: http://123.21.33.22/ and/or https://[2001:db8::1]/
+            ip_obj = ipaddress.ip_address(domain)
+            ip_formatted = f"[{domain}]" if ip_obj.version == 6 else domain
             for proto in protocols:
                 target_items.append({
-                    "url": f"{proto}{domain}/",
+                    "url": f"{proto}{ip_formatted}/",
                     "parent_domain": None,
                     "is_resolved_ip": False
                 })
@@ -1208,13 +1321,21 @@ configuration & api key priority:
                     for ip in ips:
                         resolved_ips[ip] = domain
 
-    # Append resolved IPs as http://<ip>/ and https://<ip>/ URLs with parent domain context
+    # Append resolved domain IPs with parent domain context
+    # When https parameter is provided (--https, -p https, -p both), submit both http:// and https:// variants;
+    # otherwise submit only http:// variant.
     if args.resolve_ips and resolved_ips:
         print(f"[*] Resolved {len(resolved_ips)} unique IP address(es) from target subdomains.")
+        ip_protocols = ["http://", "https://"] if https_provided else ["http://"]
         for ip, parent_dom in sorted(resolved_ips.items()):
-            for proto in protocols:
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+                formatted_ip = f"[{ip}]" if ip_obj.version == 6 else ip
+            except ValueError:
+                formatted_ip = ip
+            for proto in ip_protocols:
                 target_items.append({
-                    "url": f"{proto}{ip}/",
+                    "url": f"{proto}{formatted_ip}/",
                     "parent_domain": parent_dom,
                     "is_resolved_ip": True
                 })
@@ -1250,6 +1371,7 @@ configuration & api key priority:
         "reports": 0
     }
     unresolvable_hosts: Set[str] = set()
+    unresolvable_lock = threading.Lock()
     
     def process_url(item: Union[Dict[str, Any], str], depth: int = 0):
         """
@@ -1262,7 +1384,7 @@ configuration & api key priority:
           4. Dynamically generate 5+ contextual tags (with emojis).
           5. POST to urlscan.io /api/v1/scan endpoint.
           6. Optionally poll result report if -r, -e, -j, or recursive crawling is active.
-          7. Enforce 2.0s delay floor to prevent client-side rate limit spikes.
+          7. Apply delay between dispatches (if specified via --delay).
         """
         if isinstance(item, str):
             item = {"url": item, "parent_domain": None, "is_resolved_ip": False}
@@ -1270,13 +1392,16 @@ configuration & api key priority:
         host = extract_hostname(url)
 
         # 1. Skip if domain was previously identified as unresolvable (DNS Error on urlscan.io)
-        if host in unresolvable_hosts:
+        with unresolvable_lock:
+            is_unresolvable = host in unresolvable_hosts
+        if is_unresolvable:
             print(f"{Colors.WARNING}[-] Skipping {url} (domain '{host}' failed DNS resolution / unresolvable){Colors.ENDC}")
             return False, None
 
         # 2. Fast local DNS pre-check if requested via -D / --dns-precheck
         if args.dns_precheck and not can_resolve_dns(host):
-            unresolvable_hosts.add(host)
+            with unresolvable_lock:
+                unresolvable_hosts.add(host)
             print(f"{Colors.WARNING}[-] Skipping {url} (DNS pre-check failed: domain '{host}' cannot be resolved){Colors.ENDC}")
             return False, None
         
@@ -1302,7 +1427,8 @@ configuration & api key priority:
             customagent=args.user_agent,
             referer=args.referer,
             country=args.country,
-            unresolvable_hosts=unresolvable_hosts
+            unresolvable_hosts=unresolvable_hosts,
+            unresolvable_lock=unresolvable_lock
         )
         report_data = None
         is_success = False
@@ -1319,8 +1445,9 @@ configuration & api key priority:
                 if args.report:
                     print_summary(report_data)
         
-        # 6. Enforce safety delay floor to avoid aggressive 429 bursts on client side
-        time.sleep(max(2.0, args.delay))
+        # 6. Apply user-configured delay between dispatches (if specified)
+        if args.delay > 0:
+            time.sleep(args.delay)
         return is_success, report_data
         
     import concurrent.futures
@@ -1329,7 +1456,7 @@ configuration & api key priority:
     current_depth = 0
     max_depth = max(0, args.recursive)
     current_items = unique_target_items
-    visited_domains = set(domains)
+    visited_domains = set(extract_hostname(item["url"]) for item in unique_target_items)
     visited_urls = set(item["url"] for item in unique_target_items)
     total_urls_submitted_count = 0
 
@@ -1419,8 +1546,10 @@ configuration & api key priority:
                     is_ip = False
 
                 if is_ip:
+                    ip_obj = ipaddress.ip_address(next_dom)
+                    ip_formatted = f"[{next_dom}]" if ip_obj.version == 6 else next_dom
                     for proto in protocols:
-                        u = f"{proto}{next_dom}/"
+                        u = f"{proto}{ip_formatted}/"
                         if u not in visited_urls:
                             visited_urls.add(u)
                             next_items.append({

@@ -494,6 +494,8 @@ urlscan-submit -f daily_domain_feed.txt -j daily_siem_feed.json -w 12 --tags "si
                   <tr>
                     <td className="px-4 py-2.5 font-mono font-bold text-purple-600">-I, --resolve-ips</td>
                     <td className="px-4 py-2.5 text-gray-600">Resolve DNS A-records for all subdomains and also submit their direct IP addresses (<code className="bg-gray-100 px-1 rounded font-mono">http://&lt;ip&gt;/</code> and <code className="bg-gray-100 px-1 rounded font-mono">https://&lt;ip&gt;/</code>).</td>
+                    <td className="px-4 py-2.5 font-mono font-bold text-purple-600">-I, --submit-ips, --resolve-ips</td>
+                    <td className="px-4 py-2.5 text-gray-600">Resolve DNS A-records for all domains/subdomains and submit direct IP addresses (<code className="bg-gray-100 px-1 rounded font-mono">http://&lt;ip&gt;/</code>; also submits <code className="bg-gray-100 px-1 rounded font-mono">https://&lt;ip&gt;/</code> if HTTPS parameter is provided).</td>
                   </tr>
                   <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-j, --json-log &lt;JSON&gt;</td>
@@ -510,6 +512,14 @@ urlscan-submit -f daily_domain_feed.txt -j daily_siem_feed.json -w 12 --tags "si
                   <tr>
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-p, --protocols &lt;P&gt;</td>
                     <td className="px-4 py-2.5 text-gray-600">Protocol generation: <code className="bg-gray-100 px-1 rounded font-mono">http</code>, <code className="bg-gray-100 px-1 rounded font-mono">https</code>, or <code className="bg-gray-100 px-1 rounded font-mono">both</code> (default: <code className="font-mono">https</code>).</td>
+                  </tr>
+                  <tr className="bg-gray-50/50">
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--https</td>
+                    <td className="px-4 py-2.5 text-gray-600">Target HTTPS protocol (when submitting domain IPs with <code className="bg-gray-100 px-1 rounded font-mono">--submit-ips</code>, submits both HTTP and HTTPS variants).</td>
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-2.5 font-mono font-bold text-blue-600">--http</td>
+                    <td className="px-4 py-2.5 text-gray-600">Target HTTP protocol only.</td>
                   </tr>
                   <tr className="bg-gray-50/50">
                     <td className="px-4 py-2.5 font-mono font-bold text-blue-600">-r, --report</td>
@@ -608,6 +618,7 @@ urlscan-submit -f daily_domain_feed.txt -j daily_siem_feed.json -w 12 --tags "si
                   <div className="p-4 bg-white space-y-2 text-gray-600 border-t border-gray-200 leading-relaxed">
                     <p>
                       When you enable <code className="font-mono bg-gray-100 px-1 rounded">-I</code> (or <code className="font-mono bg-gray-100 px-1 rounded">--resolve-ips</code>), the tool resolves DNS A-records for all generated target subdomains and submits their direct IP address URLs (e.g. <code className="font-mono bg-gray-100 px-1 rounded">http://123.21.33.22/</code> and <code className="font-mono bg-gray-100 px-1 rounded">https://123.21.33.22/</code>).
+                      When you enable <code className="font-mono bg-gray-100 px-1 rounded">-I</code> (or <code className="font-mono bg-gray-100 px-1 rounded">--submit-ips</code> / <code className="font-mono bg-gray-100 px-1 rounded">--resolve-ips</code>), the tool resolves DNS A-records for all generated target domains and subdomains and submits their direct IP address URLs. If the HTTPS parameter is provided (<code className="font-mono bg-gray-100 px-1 rounded">--https</code> or <code className="font-mono bg-gray-100 px-1 rounded">-p https</code> / <code className="font-mono bg-gray-100 px-1 rounded">-p both</code>), both <code className="font-mono bg-gray-100 px-1 rounded">http://&lt;ip&gt;/</code> and <code className="font-mono bg-gray-100 px-1 rounded">https://&lt;ip&gt;/</code> variants are submitted; otherwise, only the HTTP variant is submitted.
                     </p>
                     <p>
                       Direct IP addresses can also be passed as inputs directly (e.g., <code className="font-mono bg-gray-100 px-1 rounded">urlscan-submit -d 123.21.33.22 -p both</code>).

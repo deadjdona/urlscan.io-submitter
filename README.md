@@ -62,6 +62,7 @@
 | 🏷️ **Dynamic Multi-Tag Generator** | Contextually auto-generates 5+ rich emoji metadata tags for each submission (e.g. `🔒-https`, `🏷️-org`, `🎯-company.org`, `🏢-sub-api`, `🤖-urlscan-submit`). |
 | 🗺️ **Cartesian Subdomain Matrix** | Expands target domains across HTTP/HTTPS, root/www, and +20 (`-x`), +60 (`-xx`), or +140 (`-xxx`) common infrastructure subdomains (`sso`, `k8s`, `grafana`, `db`). |
 | 🔎 **Subdomain IP Resolution** | Resolves live DNS A-records for target subdomains and submits both the hostnames and their raw direct IP endpoints (`-I`, `--resolve-ips`). |
+| 🔎 **Subdomain IP Resolution** | Resolves live DNS A-records for target domains/subdomains and submits raw direct IP endpoints (`-I`, `--submit-ips`, `--resolve-ips`). Submits `http://<ip>/`, and also submits `https://<ip>/` if the HTTPS parameter (`--https`, `-p https`) is provided. |
 | ⚡ **Multi-Threaded ThreadPool** | High-concurrency worker dispatch engine (`-w`, `--workers`) with built-in thread safety and real-time visual progress HUD. |
 | 🚦 **Smart Rate-Limit Backoff** | Dynamically parses `X-Rate-Limit-Reset-After` headers and applies exponential backoff algorithms to prevent quota bans or dropped requests. |
 | 🌐 **Interactive Web Dashboard** | Full-stack React + Vite + Tailwind CSS GUI with live terminal telemetry, dataset splitting, partition manager, and playbook guides. |
@@ -124,10 +125,13 @@ usage: urlscan-submit [-h] [-c FILE] [--country CC] [-d DOMAIN] [-D]
 | `-f`, `--file` | `-📁` | `<FILE>` | Path to line-delimited text file of target domains/IPs (supports `#` comments) |
 | `-h`, `--help` | | _flag_ | Display comprehensive help message and ASCII art banner |
 | `-I`, `--resolve-ips` | `-🔎` | _flag_ | Resolve DNS A-records for subdomains and submit direct IP endpoints |
+| `-I`, `--submit-ips`, `--resolve-ips` | `-🔎` | _flag_ | Resolve DNS A-records for domains/subdomains and submit direct IP endpoints (`http://<ip>/`; also submits `https://<ip>/` if `--https` / `-p https` is provided) |
 | `-j`, `--json-log` | `-📜` | `<FILE>` | Export complete raw JSON API response payloads to file |
 | `-k`, `--api-key-file`| `-🔑` | `<FILE>` | Path to file containing urlscan.io API key |
 | `--max-links` | `-📎` | `<N>` | Max discovered linked domains to follow per recursive cycle (default: `10`) |
 | `-p`, `--protocols` | `-🌐` | `http\|https\|both` | Protocol variants to generate (default: `https`) |
+| `--https` | | _flag_ | Target HTTPS protocol (when submitting domain IPs with `--submit-ips`, submits both HTTP and HTTPS variants) |
+| `--http` | | _flag_ | Target HTTP protocol only |
 | `-r`, `--report` | `-📝` | _flag_ | Wait for scan completion and print formatted ASCII summary table |
 | `-R`, `--recursive` | `-🕸` | `<DEPTH>` | Recursion depth to follow and scan discovered linked domains (`-R 1`, `-R 2`) |
 | `--referer` | `-🔗` | `<URL>` | Override HTTP `Referer` header sent by urlscan.io crawler |

@@ -22,50 +22,69 @@ import {
 } from '../types/scanner';
 
 /**
- * Common subdomains for basic reconnaissance enumeration
+ * Common subdomains for basic reconnaissance enumeration (-x / --explore)
  * (mail, ftp, admin, dev, api, etc.)
  */
 export const COMMON_SUBDOMAINS: string[] = [
   'mail', 'ftp', 'webmail', 'smtp', 'pop', 'imap',
   'cpanel', 'admin', 'dev', 'test', 'stage', 'blog',
-  'vpn', 'ns1', 'ns2', 'dns', 'portal', 'api',
-  'support', 'shop'
+  'portal', 'vpn', 'remote', 'autodiscover', 'api',
+  'shop', 'store', 'support', 'm'
 ];
 
 /**
- * Extended subdomain list for deeper reconnaissance
- * (auth, login, dashboard, git, monitoring, staging, etc.)
+ * Extended subdomain list for deeper reconnaissance (-xx / --deep-explore)
+ * (auth, login, dashboard, git, monitoring, staging, k8s, vault, etc.)
  */
 export const DEEP_SUBDOMAINS: string[] = [
   ...COMMON_SUBDOMAINS,
-  'auth', 'login', 'secure', 'dashboard', 'billing',
-  'app', 'mobile', 'cdn', 'static', 'assets',
-  'git', 'gitlab', 'github', 'jenkins', 'ci',
-  'status', 'monitor', 'grafana', 'kibana', 'prometheus',
-  'beta', 'alpha', 'demo', 'staging', 'preview',
-  'docs', 'help', 'kb', 'forum', 'community',
-  'db', 'sql', 'mysql', 'redis', 'elastic',
-  'ws', 'graphql', 'rest', 'gateway', 'proxy'
+  'auth', 'login', 'secure', 'app', 'dashboard', 'billing',
+  'payment', 'status', 'help', 'docs', 'kb', 'wiki', 'forum',
+  'news', 'cdn', 'static', 'assets', 'images', 'media', 'video',
+  'beta', 'alpha', 'prod', 'qa', 'uat', 'demo', 'sandbox',
+  'partner', 'client', 'customer', 'member', 'internal', 'intranet',
+  'git', 'svn', 'jira', 'confluence', 'jenkins', 'gitlab', 'stats',
+  'k8s', 'vault'
 ];
 
 /**
- * Comprehensive subdomain list for aggressive reconnaissance
- * (SSO, intranet, internal systems, payment, webhooks, logs, chat services, etc.)
+ * Comprehensive subdomain list for massive reconnaissance (-xxx / --massive-explore)
+ * (SSO, cloud, databases, metrics, regional endpoints, network infrastructure, etc.)
  */
 export const MASSIVE_SUBDOMAINS: string[] = [
   ...DEEP_SUBDOMAINS,
-  'sso', 'idp', 'oauth', 'saml', 'ldap', 'radius',
-  'intranet', 'internal', 'corp', 'staff', 'employee',
-  'remote', 'connect', 'access', 'gateway2', 'direct',
-  'pay', 'payment', 'checkout', 'cart', 'store',
-  'webhook', 'hooks', 'events', 'pubsub', 'kafka',
-  'sandbox', 'lab', 'poc', 'uat', 'dr',
-  'logs', 'metrics', 'audit', 'telemetry', 'trace',
-  'media', 'images', 'img', 'video', 'files',
-  'download', 'dl', 'repo', 'registry', 'npm',
-  'mx', 'relay', 'postfix', 'sendgrid', 'mailer',
-  'chat', 'meet', 'zoom', 'slack', 'jira', 'confluence'
+  'en', 'us', 'uk', 'fr', 'de', 'ru', 'es', 'it', 'jp', 'cn', 'br', 'au',
+  'metrics', 'grafana', 'prometheus', 'kibana', 'elastic', 'splunk', 'syslog',
+  'sso', 'idp', 'oauth', 'openid', 'jwt', 'saml',
+  'db', 'sql', 'mysql', 'postgres', 'mongo', 'redis', 'memcached', 'oracle',
+  'erp', 'crm', 'hr', 'payroll', 'finance', 'accounting', 'sales', 'marketing',
+  'corp', 'office', 'web', 'www2', 'www3', 'cloud', 'aws', 'gcp', 'azure',
+  'download', 'upload', 'files', 'share', 'drive', 'sftp', 'ssh',
+  'gateway', 'proxy', 'firewall', 'router', 'switch', 'lb', 'balancer',
+  'old', 'new', 'v1', 'v2', 'v3', 'api-v1', 'api-v2', 'api-v3',
+  'mail2', 'mx', 'mx1', 'mx2', 'smtp1', 'smtp2', 'ns1', 'ns2', 'ns3', 'ns4',
+  'cdn1', 'cdn2', 'cdn3', 'img', 'img1', 'img2', 'img3', 'static1', 'static2'
 ];
+
+/**
+ * Well-known multi-part second-level domain suffixes (e.g. .co.uk, .gov.ru)
+ */
+export const MULTI_PART_TLDS = new Set([
+  'co.uk', 'org.uk', 'gov.uk', 'ac.uk', 'me.uk', 'net.uk', 'sch.uk', 'ltd.uk', 'plc.uk',
+  'gov.ru', 'com.ru', 'org.ru', 'net.ru', 'edu.ru', 'mil.ru',
+  'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au', 'id.au', 'asn.au',
+  'co.nz', 'org.nz', 'net.nz', 'govt.nz', 'ac.nz', 'geek.nz', 'gen.nz',
+  'co.jp', 'ne.jp', 'or.jp', 'go.jp', 'ac.jp', 'ed.jp', 'lg.jp',
+  'com.br', 'org.br', 'gov.br', 'net.br', 'edu.br', 'mil.br', 'art.br',
+  'com.cn', 'net.cn', 'org.cn', 'gov.cn', 'edu.cn', 'mil.cn',
+  'co.in', 'net.in', 'org.in', 'gen.in', 'firm.in', 'ind.in', 'nic.in', 'ac.in', 'edu.in', 'gov.in',
+  'com.mx', 'org.mx', 'net.mx', 'edu.mx', 'gob.mx',
+  'co.za', 'org.za', 'net.za', 'gov.za', 'ac.za', 'edu.za',
+  'com.sg', 'org.sg', 'net.sg', 'edu.sg', 'gov.sg', 'per.sg',
+  'com.tr', 'org.tr', 'net.tr', 'edu.tr', 'gov.tr', 'bel.tr', 'pol.tr',
+  'com.tw', 'org.tw', 'net.tw', 'edu.tw', 'gov.tw', 'idv.tw',
+  'gc.ca', 'fed.us'
+]);
 
 /**
  * Checks if a string is a valid IPv4 address
@@ -94,13 +113,16 @@ export function extractTld(hostname: string): string | null {
 }
 
 /**
- * Extracts apex domain (e.g., 'example.com') from hostname
+ * Extracts apex domain (e.g., 'example.com' or 'bank.co.uk') from hostname
  */
 export function extractApexDomain(hostname: string): string | null {
   const clean = hostname.trim().replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '').split(':')[0];
   if (isIPv4Address(clean)) return null;
   const parts = clean.split('.');
   if (parts.length >= 2) {
+    if (parts.length >= 3 && MULTI_PART_TLDS.has(parts.slice(-2).join('.').toLowerCase())) {
+      return parts.slice(-3).join('.').toLowerCase();
+    }
     return parts.slice(-2).join('.').toLowerCase();
   }
   return null;
@@ -248,6 +270,24 @@ export function expandTargetMatrix(
         results.add(`${scheme}://${fqdn}`);
       }
     }
+
+    // Expand resolved IP targets for the domain if resolveIps is true
+    if (resolveIps) {
+      let hash = 0;
+      for (let i = 0; i < clean.length; i++) {
+        hash = ((hash << 5) - hash) + clean.charCodeAt(i);
+        hash |= 0;
+      }
+      const lastOctet = Math.abs(hash % 250) + 2;
+      const simIp = `198.51.100.${lastOctet}`;
+
+      // When HTTPS is requested (https or both), submit both http and https IP variants;
+      // otherwise submit only http
+      const ipSchemes = (protocols === 'https' || protocols === 'both') ? ['http', 'https'] : ['http'];
+      for (const scheme of ipSchemes) {
+        results.add(`${scheme}://${simIp}/`);
+      }
+    }
   }
 
   return Array.from(results);
@@ -301,7 +341,8 @@ export class ClientScanRunner {
       rawTargets,
       config.protocols,
       config.subdomains,
-      config.explore
+      config.explore,
+      config.resolveIps
     );
 
     // Initialize worker status for each thread
