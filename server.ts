@@ -35,7 +35,43 @@ app.use((req, res, next) => {
 });
 
 // Directory containing scan datasets and results
+// Directories containing scan datasets and results
+const DATASET_DIRS = [
+  path.resolve(__dirname), // current repository root (domains.txt, gov.ru.txt, etc.)
+  path.resolve(__dirname, '../scans'), // scans directory (pages.dev, etc.)
+];
 const SCANS_DIR = path.resolve(__dirname, '../scans');
+
+/**
+ * Locate a dataset file across known search directories
+ */
+function findDatasetFile(filename: string): string | null {
+  for (const dir of DATASET_DIRS) {
+    const candidate = path.join(dir, filename);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Load urlscan.io API key from environment or local api_key.txt
+ */
+function getLocalApiKey(): string {
+  if (process.env.URLSCAN_API_KEY) {
+    return process.env.URLSCAN_API_KEY.trim();
+  }
+  const keyFile = path.resolve(__dirname, 'api_key.txt');
+  if (fs.existsSync(keyFile)) {
+    try {
+      return fs.readFileSync(keyFile, 'utf-8').trim();
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
 
 /**
  * Calculate Shannon entropy of a string to measure randomness/uniformity
@@ -57,6 +93,55 @@ function calculateEntropy(text: string): number {
   return entropy;
 }
 
+/**
+ * Submit target URL to urlscan.io REST API
+ */
+async function submitToUrlscan(targetUrl: string, config: any, apiKey: string) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'API-Key': apiKey,
+  };
+
+  const payload: Record<string, any> = {
+    url: targetUrl,
+    visibility: config.visibility || 'public',
+  };
+  if (config.tags && Array.isArray(config.tags) && config.tags.length > 0) {
+    payload.tags = config.tags;
+  }
+  if (config.country) {
+    payload.country = config.country;
+  }
+  if (config.userAgent) {
+    payload.customagent = config.userAgent;
+  }
+  if (config.referer) {
+    payload.referer = config.referer;
+  }
+
+  const startTime = Date.now();
+  const res = await fetch('https://urlscan.io/api/v1/scan/', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload),
+  });
+
+  const latencyMs = Date.now() - startTime;
+  let data: any = {};
+  try {
+    data = await res.json();
+  } catch {
+    data = {};
+  }
+
+  return {
+    status: res.status,
+    headers: res.headers,
+    data,
+    latencyMs,
+  };
+}
+
 // ============================================================================
 // API ENDPOINTS
 // ============================================================================
@@ -68,10 +153,25 @@ function calculateEntropy(text: string): number {
  */
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', serverTime: new Date().toISOString(), scansDirExists: fs.existsSync(SCANS_DIR) });
+  res.json({
+    status: 'ok',
+    serverTime: new Date().toISOString(),
+    scansDirExists: DATASET_DIRS.some((d) => fs.existsSync(d)),
+    hasApiKey: Boolean(getLocalApiKey()),
+  });
 });
 
 /**
  * List all available datasets in the scans directory
+ * Local API key retrieval endpoint for localhost dashboard
+ * GET /api/key
+ */
+app.get('/api/key', (_req: Request, res: Response) => {
+  res.json({ apiKey: getLocalApiKey() });
+});
+
+/**
+ * List all available datasets in repo and scans directory
  * Returns metadata for each file (name, path, size, modification time)
  * GET /api/datasets
  */
@@ -80,6 +180,29 @@ app.get('/api/datasets', (_req: Request, res: Response) => {
     if (!fs.existsSync(SCANS_DIR)) {
       res.json([]);
       return;
+    const seen = new Set<string>();
+    const datasets: any[] = [];
+    const ignoredFiles = new Set(['api_key.txt', 'requirements.txt', 'license.txt', 'package.json', 'package-lock.json', 'tsconfig.json']);
+
+    for (const dir of DATASET_DIRS) {
+      if (!fs.existsSync(dir)) continue;
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        if (seen.has(f) || ignoredFiles.has(f.toLowerCase())) continue;
+        if (f.endsWith('.dev') || f.endsWith('.txt') || f.endsWith('.csv') || f === 'pages.dev') {
+          const fullPath = path.join(dir, f);
+          const stats = fs.statSync(fullPath);
+          if (stats.isFile()) {
+            seen.add(f);
+            datasets.push({
+              filename: f,
+              path: fullPath,
+              sizeBytes: stats.size,
+              modified: stats.mtime,
+            });
+          }
+        }
+      }
     }
     const files = fs.readdirSync(SCANS_DIR);
     const datasets = files
@@ -104,14 +227,18 @@ app.get('/api/datasets', (_req: Request, res: Response) => {
  * Fetch a sample of lines from a dataset file
  * Useful for preview/inspection without loading entire file
  * GET /api/datasets/sample?file=pages.dev&limit=50
+ * GET /api/datasets/sample?file=domains.txt&limit=50
  */
 app.get('/api/datasets/sample', (req: Request, res: Response) => {
   try {
     const filename = (req.query.file as string) || 'pages.dev';
+    const filename = (req.query.file as string) || 'domains.txt';
     const limit = parseInt(req.query.limit as string, 10) || 50;
     const targetFile = path.join(SCANS_DIR, filename);
+    const targetFile = findDatasetFile(filename);
 
     if (!fs.existsSync(targetFile)) {
+    if (!targetFile) {
       res.status(404).json({ error: `File not found: ${filename}` });
       return;
     }
@@ -138,13 +265,17 @@ app.get('/api/datasets/sample', (req: Request, res: Response) => {
  * Analyzes domain patterns, entropy, length metrics, and classification
  * Useful for reconnaissance and dataset characterization
  * GET /api/datasets/stats?file=pages.dev
+ * GET /api/datasets/stats?file=domains.txt
  */
 app.get('/api/datasets/stats', (req: Request, res: Response) => {
   try {
     const filename = (req.query.file as string) || 'pages.dev';
     const targetFile = path.join(SCANS_DIR, filename);
+    const filename = (req.query.file as string) || 'domains.txt';
+    const targetFile = findDatasetFile(filename);
 
     if (!fs.existsSync(targetFile)) {
+    if (!targetFile) {
       res.status(404).json({ error: `File not found: ${filename}` });
       return;
     }
@@ -186,13 +317,20 @@ app.get('/api/datasets/stats', (req: Request, res: Response) => {
       const prefix = d.replace(/\.pages\.dev$/, '');
       if (prefix.length > 0) {
         const c1 = prefix[0];
+    for (const d of uniqueDomains) {
+      const clean = d.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '');
+      if (clean.length > 0) {
+        const c1 = clean[0];
         firstCharDist[c1] = (firstCharDist[c1] || 0) + 1;
         if (prefix.length >= 2) {
           const c2 = prefix.substring(0, 2);
+        if (clean.length >= 2) {
+          const c2 = clean.substring(0, 2);
           firstTwoChars[c2] = (firstTwoChars[c2] || 0) + 1;
         }
       }
       const hyphens = (prefix.match(/-/g) || []).length;
+      const hyphens = (clean.match(/-/g) || []).length;
       hyphenCounts[hyphens] = (hyphenCounts[hyphens] || 0) + 1;
     }
 
@@ -222,6 +360,31 @@ app.get('/api/datasets/stats', (req: Request, res: Response) => {
         hyphen_distribution: hyphenCounts,
       },
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Browser Proxy Submission endpoint
+ * Overcomes CORS restrictions for browser clients calling urlscan.io
+ * POST /api/scan/proxy-submit
+ */
+app.post('/api/scan/proxy-submit', async (req: Request, res: Response) => {
+  const { url, config, apiKey: clientKey } = req.body;
+  if (!url) {
+    res.status(400).json({ error: 'url is required' });
+    return;
+  }
+  const keyToUse = clientKey || config?.apiKey || getLocalApiKey();
+  if (!keyToUse) {
+    res.status(400).json({ error: 'API key is required. None found in request, api_key.txt, or environment.' });
+    return;
+  }
+
+  try {
+    const result = await submitToUrlscan(url, config || {}, keyToUse);
+    res.status(result.status).json(result.data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -324,6 +487,9 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
       workerStatus[w] = { id: w, state: 'idle', totalProcessed: 0 };
     }
 
+    const effectiveApiKey = session.config.apiKey || getLocalApiKey();
+    const isSimulation = session.config.engine === 'simulation' || !effectiveApiKey;
+
     const workerTasks = Array.from({ length: workers }, async (_, wIdx) => {
       const workerId = wIdx + 1;
 
@@ -346,6 +512,10 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
 
         // Delay & mock request execution
         await new Promise((r) => setTimeout(r, Math.max(150, delaySec * 1000)));
+        // Delay between submissions
+        if (delaySec > 0) {
+          await new Promise((r) => setTimeout(r, Math.max(100, delaySec * 1000)));
+        }
 
         const isRateLimited = Math.random() < 0.05;
         const isError = !isRateLimited && Math.random() < 0.02;
@@ -354,8 +524,18 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
           const r = (Math.random() * 16) | 0;
           return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
         });
+        if (isSimulation) {
+          // Simulation / Mock mode
+          const isRateLimited = Math.random() < 0.05;
+          const isError = !isRateLimited && Math.random() < 0.02;
+          const latencyMs = Math.floor(Math.random() * 400) + 150;
+          const mockUuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (Math.random() * 16) | 0;
+            return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+          });
 
         processed++;
+          processed++;
 
         if (isRateLimited) {
           rateLimitedCount++;
@@ -390,6 +570,54 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
             workerId,
             errorMessage: 'Upstream server error (500)',
           });
+          if (isRateLimited) {
+            rateLimitedCount++;
+            sendEvent('worker_update', {
+              workerId,
+              state: 'backoff',
+              backoffRemaining: 3,
+              currentTarget: target,
+            });
+            sendEvent('scan_result', {
+              id: Math.random().toString(36).substring(2, 9),
+              target,
+              url: target.startsWith('http') ? target : `https://${target}`,
+              status: 'rate_limited',
+              statusCode: 429,
+              latencyMs,
+              timestamp: new Date().toLocaleTimeString(),
+              workerId,
+              errorMessage: 'HTTP 429 Rate Limit encountered (Backing off)',
+            });
+            await new Promise((r) => setTimeout(r, 2000));
+          } else if (isError) {
+            errorCount++;
+            sendEvent('scan_result', {
+              id: Math.random().toString(36).substring(2, 9),
+              target,
+              url: target.startsWith('http') ? target : `https://${target}`,
+              status: 'error',
+              statusCode: 500,
+              latencyMs,
+              timestamp: new Date().toLocaleTimeString(),
+              workerId,
+              errorMessage: 'Upstream server error (500)',
+            });
+          } else {
+            successCount++;
+            sendEvent('scan_result', {
+              id: Math.random().toString(36).substring(2, 9),
+              target,
+              url: target.startsWith('http') ? target : `https://${target}`,
+              status: 'success',
+              statusCode: 200,
+              uuid: mockUuid,
+              resultUrl: `https://urlscan.io/result/${mockUuid}/`,
+              latencyMs,
+              timestamp: new Date().toLocaleTimeString(),
+              workerId,
+            });
+          }
         } else {
           successCount++;
           sendEvent('scan_result', {
@@ -404,6 +632,106 @@ app.get('/api/scan/stream/:sessionId', (req: Request, res: Response) => {
             timestamp: new Date().toLocaleTimeString(),
             workerId,
           });
+          // Real urlscan.io submission
+          const targetUrl = target.startsWith('http://') || target.startsWith('https://')
+            ? target
+            : `https://${target}`;
+          const domain = target.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '');
+
+          try {
+            const resp = await submitToUrlscan(targetUrl, session.config, effectiveApiKey);
+            processed++;
+
+            if (resp.status === 200 && resp.data?.uuid) {
+              successCount++;
+              sendEvent('scan_result', {
+                id: Math.random().toString(36).substring(2, 9),
+                target: domain,
+                url: targetUrl,
+                status: 'success',
+                statusCode: 200,
+                uuid: resp.data.uuid,
+                resultUrl: resp.data.result || `https://urlscan.io/result/${resp.data.uuid}/`,
+                latencyMs: resp.latencyMs,
+                timestamp: new Date().toLocaleTimeString(),
+                workerId,
+              });
+              sendEvent('log', {
+                level: 'info',
+                workerId,
+                message: `[Worker #${workerId}] ✅ 200 OK: ${targetUrl} (UUID: ${resp.data.uuid.substring(0, 8)}... | ${resp.latencyMs}ms)`,
+                timestamp: new Date().toLocaleTimeString(),
+              });
+            } else if (resp.status === 429) {
+              rateLimitedCount++;
+              const resetHeader = resp.headers.get('x-rate-limit-reset-after') || resp.headers.get('retry-after');
+              const backoffSec = resetHeader ? Math.max(1, parseInt(resetHeader, 10) || 5) : 5;
+              sendEvent('worker_update', {
+                workerId,
+                state: 'backoff',
+                backoffRemaining: backoffSec,
+                currentTarget: target,
+              });
+              sendEvent('scan_result', {
+                id: Math.random().toString(36).substring(2, 9),
+                target: domain,
+                url: targetUrl,
+                status: 'rate_limited',
+                statusCode: 429,
+                latencyMs: resp.latencyMs,
+                timestamp: new Date().toLocaleTimeString(),
+                workerId,
+                errorMessage: `HTTP 429: ${resp.data?.message || 'Rate limit exceeded'} (backing off ${backoffSec}s)`,
+              });
+              sendEvent('log', {
+                level: 'warn',
+                workerId,
+                message: `[Worker #${workerId}] ⚠️ Rate limit encountered. Backing off for ${backoffSec}s...`,
+                timestamp: new Date().toLocaleTimeString(),
+              });
+              await new Promise((r) => setTimeout(r, backoffSec * 1000));
+            } else {
+              errorCount++;
+              const errorMsg = resp.data?.message || resp.data?.description || `HTTP ${resp.status}`;
+              sendEvent('scan_result', {
+                id: Math.random().toString(36).substring(2, 9),
+                target: domain,
+                url: targetUrl,
+                status: 'error',
+                statusCode: resp.status,
+                latencyMs: resp.latencyMs,
+                timestamp: new Date().toLocaleTimeString(),
+                workerId,
+                errorMessage: errorMsg,
+              });
+              sendEvent('log', {
+                level: 'error',
+                workerId,
+                message: `[Worker #${workerId}] ❌ Error submitting ${targetUrl}: ${errorMsg}`,
+                timestamp: new Date().toLocaleTimeString(),
+              });
+            }
+          } catch (err: any) {
+            processed++;
+            errorCount++;
+            sendEvent('scan_result', {
+              id: Math.random().toString(36).substring(2, 9),
+              target: domain,
+              url: targetUrl,
+              status: 'error',
+              statusCode: 500,
+              latencyMs: 0,
+              timestamp: new Date().toLocaleTimeString(),
+              workerId,
+              errorMessage: err.message || 'Network error submitting to urlscan.io',
+            });
+            sendEvent('log', {
+              level: 'error',
+              workerId,
+              message: `[Worker #${workerId}] ❌ Network error for ${targetUrl}: ${err.message}`,
+              timestamp: new Date().toLocaleTimeString(),
+            });
+          }
         }
 
         const elapsedSec = Math.max(1, Math.floor((Date.now() - session.startTime) / 1000));

@@ -833,6 +833,28 @@ export class ClientScanRunner {
         body: JSON.stringify(payload),
         signal: this.abortController?.signal,
       });
+      // First try backend proxy endpoint to bypass browser CORS restrictions
+      let res: Response;
+      try {
+        res = await fetch('/api/scan/proxy-submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: targetUrl,
+            config: this.config,
+            apiKey: this.config.apiKey,
+          }),
+          signal: this.abortController?.signal,
+        });
+      } catch {
+        // Fallback to direct urlscan.io submission if proxy is unreachable
+        res = await fetch('https://urlscan.io/api/v1/scan/', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+          signal: this.abortController?.signal,
+        });
+      }
 
       const latencyMs = Date.now() - startTime;
 

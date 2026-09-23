@@ -37,6 +37,23 @@ export async function checkBackendHealth(): Promise<boolean> {
 }
 
 /**
+ * Fetch local API key from server if available (e.g. from api_key.txt)
+ * @returns API key string or empty string
+ */
+export async function fetchApiKey(): Promise<string> {
+  try {
+    const res = await fetch(`${API_BASE}/key`);
+    if (res.ok) {
+      const data = await res.json();
+      return data.apiKey || '';
+    }
+  } catch {
+    // ignore
+  }
+  return '';
+}
+
+/**
  * Fetch list of available domain datasets
  * @returns Array of dataset metadata (filename, filesize, domain count)
  */
