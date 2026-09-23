@@ -10,35 +10,6 @@ const __dirname = path.dirname(__filename);
 
 function devApiPlugin(): Plugin {
   const SCANS_DIR = path.resolve(__dirname, '../scans');
-  const DATASET_DIRS = [
-    path.resolve(__dirname), // current repository root (domains.txt, gov.ru.txt, etc.)
-    path.resolve(__dirname, '../scans'), // scans directory (pages.dev, etc.)
-  ];
-
-  function findDatasetFile(filename: string): string | null {
-    for (const dir of DATASET_DIRS) {
-      const candidate = path.join(dir, filename);
-      if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  function getLocalApiKey(): string {
-    if (process.env.URLSCAN_API_KEY) {
-      return process.env.URLSCAN_API_KEY.trim();
-    }
-    const keyFile = path.resolve(__dirname, 'api_key.txt');
-    if (fs.existsSync(keyFile)) {
-      try {
-        return fs.readFileSync(keyFile, 'utf-8').trim();
-      } catch {
-        return '';
-      }
-    }
-    return '';
-  }
 
   return {
     name: 'dev-api-middleware',
@@ -54,19 +25,6 @@ function devApiPlugin(): Plugin {
         if (pathname === '/api/health') {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ status: 'ok', scansDirExists: fs.existsSync(SCANS_DIR) }));
-          res.end(
-            JSON.stringify({
-              status: 'ok',
-              scansDirExists: DATASET_DIRS.some((d) => fs.existsSync(d)),
-              hasApiKey: Boolean(getLocalApiKey()),
-            })
-          );
-          return;
-        }
-
-        if (pathname === '/api/key') {
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ apiKey: getLocalApiKey() }));
           return;
         }
 
@@ -76,29 +34,6 @@ function devApiPlugin(): Plugin {
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify([]));
               return;
-            const seen = new Set<string>();
-            const datasets: any[] = [];
-            const ignoredFiles = new Set(['api_key.txt', 'requirements.txt', 'license.txt', 'package.json', 'package-lock.json', 'tsconfig.json']);
-
-            for (const dir of DATASET_DIRS) {
-              if (!fs.existsSync(dir)) continue;
-              const files = fs.readdirSync(dir);
-              for (const f of files) {
-                if (seen.has(f) || ignoredFiles.has(f.toLowerCase())) continue;
-                if (f.endsWith('.dev') || f.endsWith('.txt') || f.endsWith('.csv') || f === 'pages.dev') {
-                  const fullPath = path.join(dir, f);
-                  const stats = fs.statSync(fullPath);
-                  if (stats.isFile()) {
-                    seen.add(f);
-                    datasets.push({
-                      filename: f,
-                      path: fullPath,
-                      sizeBytes: stats.size,
-                      modified: stats.mtime,
-                    });
-                  }
-                }
-              }
             }
             const files = fs.readdirSync(SCANS_DIR);
             const datasets = files
@@ -126,13 +61,10 @@ function devApiPlugin(): Plugin {
         if (pathname === '/api/datasets/sample') {
           try {
             const filename = url.searchParams.get('file') || 'pages.dev';
-            const filename = url.searchParams.get('file') || 'domains.txt';
             const limit = parseInt(url.searchParams.get('limit') || '50', 10);
             const targetFile = path.join(SCANS_DIR, filename);
-            const targetFile = findDatasetFile(filename);
 
             if (!fs.existsSync(targetFile)) {
-            if (!targetFile) {
               res.statusCode = 404;
               res.end(JSON.stringify({ error: `File not found: ${filename}` }));
               return;
@@ -159,11 +91,8 @@ function devApiPlugin(): Plugin {
           try {
             const filename = url.searchParams.get('file') || 'pages.dev';
             const targetFile = path.join(SCANS_DIR, filename);
-            const filename = url.searchParams.get('file') || 'domains.txt';
-            const targetFile = findDatasetFile(filename);
 
             if (!fs.existsSync(targetFile)) {
-            if (!targetFile) {
               res.statusCode = 404;
               res.end(JSON.stringify({ error: `File not found: ${filename}` }));
               return;
@@ -194,20 +123,13 @@ function devApiPlugin(): Plugin {
               const prefix = d.replace(/\.pages\.dev$/, '');
               if (prefix.length > 0) {
                 const c1 = prefix[0];
-            for (const d of uniqueDomains) {
-              const clean = d.replace(/^[a-zA-Z]+:\/\//, '').replace(/\/.*$/, '');
-              if (clean.length > 0) {
-                const c1 = clean[0];
                 firstCharDist[c1] = (firstCharDist[c1] || 0) + 1;
                 if (prefix.length >= 2) {
                   const c2 = prefix.substring(0, 2);
-                if (clean.length >= 2) {
-                  const c2 = clean.substring(0, 2);
                   firstTwoChars[c2] = (firstTwoChars[c2] || 0) + 1;
                 }
               }
               const hyphens = (prefix.match(/-/g) || []).length;
-              const hyphens = (clean.match(/-/g) || []).length;
               hyphenCounts[hyphens] = (hyphenCounts[hyphens] || 0) + 1;
             }
 

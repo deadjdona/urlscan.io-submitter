@@ -60,7 +60,6 @@ import {
   stopBackendScan,
   fetchDatasetSample,
   checkBackendHealth,
-  fetchApiKey,
 } from '../services/apiService';
 
 /**
@@ -168,7 +167,6 @@ export default function LiveScanner() {
 
   /**
    * Check backend availability on component mount
-   * Check backend availability and auto-load API key on component mount
    * Sets engine mode to 'backend_sse' if server is responding
    */
   useEffect(() => {
@@ -176,31 +174,8 @@ export default function LiveScanner() {
       setBackendAvailable(available);
       if (available && engine === 'backend_sse') {
         // keep backend_sse
-      if (available) {
-        setEngine('backend_sse');
       }
     });
-
-    if (!apiKey) {
-      fetchApiKey().then((key) => {
-        if (key) {
-          setApiKey(key);
-          appendLog('info', 'Loaded API key automatically from api_key.txt.');
-        }
-      });
-    }
-
-    // Attempt to automatically load domains.txt from repository on startup
-    fetchDatasetSample('domains.txt', 2500)
-      .then((res) => {
-        if (res.sample && res.sample.length > 0) {
-          setTargetsInput(res.sample.join('\n'));
-          appendLog('info', `Automatically loaded ${res.sample.length} targets from domains.txt.`);
-        }
-      })
-      .catch(() => {
-        // Keep fallback sample targets if domains.txt is not present
-      });
   }, []);
 
   /**
@@ -298,24 +273,12 @@ export default function LiveScanner() {
 
   /**
    * Load predefined target sets for quick testing
-   * 'domains': Full domains.txt from project root (1,123 targets)
    * 'pages20': Hard-coded Cloudflare Pages samples
    * 'pages100': Fetch 100 targets from backend dataset or generate fallback
    * 'banking': Russian banking domain infrastructure
    */
   const loadPreset = (type: 'pages20' | 'pages100' | 'banking') => {
     if (type === 'pages20') {
-  const loadPreset = (type: 'pages20' | 'pages100' | 'banking' | 'domains') => {
-    if (type === 'domains') {
-      fetchDatasetSample('domains.txt', 2500)
-        .then((res) => {
-          setTargetsInput(res.sample.join('\n'));
-          appendLog('info', `Loaded ${res.sample.length} targets from domains.txt.`);
-        })
-        .catch(() => {
-          appendLog('error', 'Failed to load domains.txt from server.');
-        });
-    } else if (type === 'pages20') {
       setTargetsInput(SAMPLE_PAGES_DEV.join('\n'));
       appendLog('info', 'Loaded 20 sample Cloudflare Pages targets.');
     } else if (type === 'banking') {
@@ -785,13 +748,6 @@ export default function LiveScanner() {
                 </label>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-xs text-gray-400 mr-1">Presets:</span>
-                  <button
-                    onClick={() => loadPreset('domains')}
-                    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-md text-xs font-semibold transition-colors flex items-center gap-1 border border-emerald-200"
-                    title="Load full domains.txt from repository (1,123 targets)"
-                  >
-                    <span>domains.txt (1,123)</span>
-                  </button>
                   <button
                     onClick={() => loadPreset('pages20')}
                     className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-xs font-medium transition-colors"
