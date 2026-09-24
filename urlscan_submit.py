@@ -43,11 +43,11 @@ import urllib.request
 import urllib.error
 from typing import List, Dict, Optional, Any, Union, Set
 
-# Ensure UTF-8 output encoding and unbuffered output across Windows and Unix terminals
+# Ensure UTF-8 output encoding across Windows and Unix terminals
 if hasattr(sys.stdout, "reconfigure"):
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
@@ -1285,7 +1285,6 @@ configuration & api key priority:
 
     target_items: List[Dict[str, Any]] = []
     resolved_ips: Dict[str, str] = {}  # ip -> parent domain
-    fqdns_for_ip_resolution: List[Any] = []
 
     # 3. Assemble the final Cartesian matrix (including direct IPs and resolved subdomain IPs)
     for domain in domains:
@@ -1318,24 +1317,9 @@ configuration & api key priority:
                     })
                 
                 if args.resolve_ips:
-                    fqdns_for_ip_resolution.append((fqdn, domain))
-
-    # Resolve IPs in parallel if enabled
-    if args.resolve_ips and fqdns_for_ip_resolution:
-        from concurrent.futures import ThreadPoolExecutor
-        if len(fqdns_for_ip_resolution) > 1:
-            print(f"[*] Resolving IP addresses for {len(fqdns_for_ip_resolution)} target(s) across DNS threads...")
-            def _resolve_task(pair):
-                fqdn_val, dom_val = pair
-                return dom_val, resolve_domain_ips(fqdn_val)
-            with ThreadPoolExecutor(max_workers=min(32, len(fqdns_for_ip_resolution))) as pool:
-                for dom_val, ips in pool.map(_resolve_task, fqdns_for_ip_resolution):
+                    ips = resolve_domain_ips(fqdn)
                     for ip in ips:
-                        resolved_ips[ip] = dom_val
-        else:
-            fqdn_val, dom_val = fqdns_for_ip_resolution[0]
-            for ip in resolve_domain_ips(fqdn_val):
-                resolved_ips[ip] = dom_val
+                        resolved_ips[ip] = domain
 
     # Append resolved domain IPs with parent domain context
     # When https parameter is provided (--https, -p https, -p both), submit both http:// and https:// variants;

@@ -826,13 +826,6 @@ export class ClientScanRunner {
     }
 
     try {
-      // POST to real urlscan.io API
-      const res = await fetch('https://urlscan.io/api/v1/scan/', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: this.abortController?.signal,
-      });
       // First try backend proxy endpoint to bypass browser CORS restrictions
       let res: Response;
       try {
