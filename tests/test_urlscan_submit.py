@@ -14,6 +14,7 @@ import urlscan_submit
 from urlscan_submit import (
     is_valid_domain, 
     resolve_domain_ips,
+    get_subnet_addresses,
     extract_hostname,
     can_resolve_dns,
     extract_tld,
@@ -81,6 +82,15 @@ class TestUrlscanSubmit(unittest.TestCase):
         import socket
         with patch('socket.gethostbyname_ex', side_effect=socket.gaierror("Name or service not known")):
             ips = resolve_domain_ips("invalid-nonexistent-sub.com")
+
+    def test_get_subnet_addresses(self):
+        addresses = get_subnet_addresses("1.2.3.45")
+        self.assertEqual(len(addresses), 256)
+        self.assertEqual(addresses[0], "1.2.3.0")
+        self.assertEqual(addresses[-1], "1.2.3.255")
+        self.assertEqual(get_subnet_addresses("2001:db8::1")[0], "2001:db8::")
+        self.assertEqual(get_subnet_addresses("2001:db8::1")[-1], "2001:db8::ff")
+
     def test_extract_tld_and_apex(self):
         self.assertEqual(extract_tld("example.com"), "com")
         self.assertEqual(extract_tld("sub.example.org"), "org")
@@ -1294,6 +1304,32 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertNotIn("https://1.2.3.4/", submitted_urls)
 
     @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-subnet"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.45'])
+    @patch('time.sleep')
+    def test_main_scan_subnet_with_https_flag(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '--scan-subnet', '--https']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        subnet_urls = {
+            url for url in submitted_urls
+            if url.startswith(("http://1.2.3.", "https://1.2.3."))
+        }
+        expected_urls = {
+            f"{protocol}1.2.3.{octet}/"
+            for protocol in ("http://", "https://")
+            for octet in range(256)
+        }
+        mock_resolve_ips.assert_called_once_with("example.com")
+        self.assertEqual(subnet_urls, expected_urls)
+        self.assertIn("https://example.com", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
     @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-https"})
     @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.4'])
     @patch('time.sleep')
@@ -1399,4 +1435,3 @@ class TestUrlscanSubmit(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
