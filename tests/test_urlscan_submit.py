@@ -159,6 +159,19 @@ class TestUrlscanSubmit(unittest.TestCase):
         self.assertIn("🤿-deep-recon", tags)
         self.assertIn("🤖-urlscan-submit", tags)
 
+    def test_generate_tags_for_url_ipv6(self):
+        tags = generate_tags_for_url(
+            url="http://[2001:db8::1]/",
+            parent_domain=None,
+            is_resolved_ip=False,
+            explore_mode="deep"
+        )
+        self.assertIn("🔓-http", tags)
+        self.assertIn("📌-ip", tags)
+        self.assertIn("🌐-ipv6", tags)
+        self.assertNotIn("🌐-ipv4", tags)
+        self.assertIn("🎯-direct-ip", tags)
+
     def test_generate_tags_for_url_apex_and_wordlist(self):
         tags = generate_tags_for_url(
             url="https://example.com",
@@ -1328,6 +1341,39 @@ class TestUrlscanSubmit(unittest.TestCase):
         mock_resolve_ips.assert_called_once_with("example.com")
         self.assertEqual(subnet_urls, expected_urls)
         self.assertIn("https://example.com", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-subnet-emoji"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.45'])
+    @patch('time.sleep')
+    def test_main_scan_subnet_with_emoji_flag(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com', '-🗺️', '--https']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("https://example.com", submitted_urls)
+        self.assertIn("http://1.2.3.0/", submitted_urls)
+        self.assertIn("https://1.2.3.255/", submitted_urls)
+
+    @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
+    @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-subnet-config"})
+    @patch('urlscan_submit.resolve_domain_ips', return_value=['1.2.3.45'])
+    @patch('time.sleep')
+    def test_main_scan_subnet_from_config(self, mock_sleep, mock_resolve_ips, mock_submit, mock_user_info):
+        cli_args = ['urlscan-submit', '-d', 'example.com']
+        with patch('sys.argv', cli_args):
+            with patch.dict(os.environ, {'URLSCAN_API_KEY': 'test_key'}):
+                with patch('urlscan_submit.load_config', return_value={"scan-subnet": True, "https": True}):
+                    with patch('urlscan_submit.print'):
+                        main()
+
+        submitted_urls = [call[0][0] for call in mock_submit.call_args_list]
+        self.assertIn("http://1.2.3.0/", submitted_urls)
+        self.assertIn("https://1.2.3.255/", submitted_urls)
 
     @patch('urlscan_submit.get_user_info', return_value={"username": "testuser"})
     @patch('urlscan_submit.submit_to_urlscan', return_value={"uuid": "uuid-ip-https"})

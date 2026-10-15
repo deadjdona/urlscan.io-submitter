@@ -409,22 +409,19 @@ def generate_tags_for_url(
         tags.append("🔓-http")
 
     # 3. Hostname and IP Analysis
-    clean_host = url.replace("https://", "").replace("http://", "").rstrip("/")
-    if "/" in clean_host:
-        clean_host = clean_host.split("/")[0]
-    if ":" in clean_host:
-        clean_host = clean_host.split(":")[0]
+    clean_host = extract_hostname(url)
 
     is_ip = False
+    ip_obj = None
     try:
-        ipaddress.ip_address(clean_host)
+        ip_obj = ipaddress.ip_address(clean_host)
         is_ip = True
     except ValueError:
         is_ip = False
 
-    if is_ip:
+    if is_ip and ip_obj is not None:
         tags.append("📌-ip")
-        tags.append("🌐-ipv4")
+        tags.append("🌐-ipv6" if ip_obj.version == 6 else "🌐-ipv4")
         if is_resolved_ip:
             tags.append("🔎-resolved-ip")
         else:
@@ -1037,7 +1034,8 @@ examples:
   (or: urlscan-submit -d target.com -p both -s both -x -I)
 
   # 🗺️ Scan every address in each resolved IPv4 /24 subnet with HTTP and HTTPS:
-  urlscan-submit -d target.com --scan-subnet --https
+  urlscan-submit -🎯 target.com -🗺️ --https
+  (or: urlscan-submit -d target.com --scan-subnet --https)
 
   # 🚀 High-speed bulk submission from file using 10 concurrent threads:
   urlscan-submit -📁 domains.txt -🚀 10 -🔎
@@ -1078,7 +1076,7 @@ configuration & api key priority:
                             help="📁 Path to line-delimited text file containing target domains or IP addresses")
     parser.add_argument("-I", "--resolve-ips", "--submit-ips", "--submit-domain-ips", "--domain-ips", "--ips", "--ip", "-🔎", action="store_true",
                         help="🔎 Resolve DNS A-records for domains/subdomains and submit their direct IP addresses (submits http://<ip>/; also submits https://<ip>/ if https parameter is provided)")
-    parser.add_argument("--scan-subnet", "--subnet-scan", action="store_true",
+    parser.add_argument("-🗺️", "--scan-subnet", "--subnet-scan", action="store_true",
                         help="🗺️ Resolve target IPs and submit all 256 addresses in each containing IPv4 /24 (IPv6 /120) subnet")
     parser.add_argument("-j", "--json-log", "-📜", metavar="FILE",
                         help="📜 Export full raw JSON API responses to file (forces report polling)")
@@ -1139,6 +1137,8 @@ configuration & api key priority:
         args.scan_subnet
         or config.get("scan_subnet", False)
         or config.get("subnet_scan", False)
+        or config.get("scan-subnet", False)
+        or config.get("subnet-scan", False)
     )
     args.resolve_ips = args.resolve_ips or args.scan_subnet
     args.subdomains = args.subdomains or config.get("subdomains") or "root"
