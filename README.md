@@ -61,8 +61,8 @@
 | 🧪 **Smart DNS Resolution Pre-Check** | Validates target domain existence locally before submitting (`-D`, `--dns-precheck`) and caches runtime HTTP 400 DNS errors to eliminate redundant submissions. |
 | 🏷️ **Dynamic Multi-Tag Generator** | Contextually auto-generates 5+ rich emoji metadata tags for each submission (e.g. `🔒-https`, `🏷️-org`, `🎯-company.org`, `🏢-sub-api`, `🤖-urlscan-submit`). |
 | 🗺️ **Cartesian Subdomain Matrix** | Expands target domains across HTTP/HTTPS, root/www, and +20 (`-x`), +60 (`-xx`), or +140 (`-xxx`) common infrastructure subdomains (`sso`, `k8s`, `grafana`, `db`). |
-| 🔎 **Subdomain IP Resolution** | Resolves live DNS A-records for target subdomains and submits both the hostnames and their raw direct IP endpoints (`-I`, `--resolve-ips`). |
 | 🔎 **Subdomain IP Resolution** | Resolves live DNS A-records for target domains/subdomains and submits raw direct IP endpoints (`-I`, `--submit-ips`, `--resolve-ips`). Submits `http://<ip>/`, and also submits `https://<ip>/` if the HTTPS parameter (`--https`, `-p https`) is provided. |
+| 🗺️ **Subnet Scanning** | `--scan-subnet` resolves targets and submits every IP in each resolved IPv4 `/24` (or IPv6 `/120`) subnet. Add `--https` to submit both HTTP and HTTPS for each IP. |
 | ⚡ **Multi-Threaded ThreadPool** | High-concurrency worker dispatch engine (`-w`, `--workers`) with built-in thread safety and real-time visual progress HUD. |
 | 🚦 **Smart Rate-Limit Backoff** | Dynamically parses `X-Rate-Limit-Reset-After` headers and applies exponential backoff algorithms to prevent quota bans or dropped requests. |
 | 🌐 **Interactive Web Dashboard** | Full-stack React + Vite + Tailwind CSS GUI with live terminal telemetry, dataset splitting, partition manager, and playbook guides. |
@@ -106,7 +106,7 @@ Every parameter supports both standard GNU-style options and fast single-emoji f
 ```text
 usage: urlscan-submit [-h] [-c FILE] [--country CC] [-d DOMAIN] [-D]
                       [--delay SECONDS] [-e FILE] [-f FILE] [-I] [-j FILE]
-                      [-k FILE] [--max-links N] [-p {http,https,both}] [-r]
+                      [--scan-subnet] [-k FILE] [--max-links N] [-p {http,https,both}] [--https] [-r]
                       [-R DEPTH] [--referer URL] [-s {root,www,both}]
                       [-t TAGS] [-ua UA] [-v] [-V {public,unlisted,private}]
                       [-w N] [-wl FILE] [-x] [-xx] [-xxx]
@@ -124,13 +124,13 @@ usage: urlscan-submit [-h] [-c FILE] [--country CC] [-d DOMAIN] [-D]
 | `-e`, `--export-csv` | `-📊` | `<FILE>` | Export formatted scan summary report to CSV file |
 | `-f`, `--file` | `-📁` | `<FILE>` | Path to line-delimited text file of target domains/IPs (supports `#` comments) |
 | `-h`, `--help` | | _flag_ | Display comprehensive help message and ASCII art banner |
-| `-I`, `--resolve-ips` | `-🔎` | _flag_ | Resolve DNS A-records for subdomains and submit direct IP endpoints |
 | `-I`, `--submit-ips`, `--resolve-ips` | `-🔎` | _flag_ | Resolve DNS A-records for domains/subdomains and submit direct IP endpoints (`http://<ip>/`; also submits `https://<ip>/` if `--https` / `-p https` is provided) |
+| `--scan-subnet`, `--subnet-scan` | `-🗺️` | _flag_ | Resolve target IPs and submit every address in each IPv4 `/24` (IPv6 `/120`); automatically enables IP resolution |
 | `-j`, `--json-log` | `-📜` | `<FILE>` | Export complete raw JSON API response payloads to file |
 | `-k`, `--api-key-file`| `-🔑` | `<FILE>` | Path to file containing urlscan.io API key |
 | `--max-links` | `-📎` | `<N>` | Max discovered linked domains to follow per recursive cycle (default: `10`) |
 | `-p`, `--protocols` | `-🌐` | `http\|https\|both` | Protocol variants to generate (default: `https`) |
-| `--https` | | _flag_ | Target HTTPS protocol (when submitting domain IPs with `--submit-ips`, submits both HTTP and HTTPS variants) |
+| `--https` | | _flag_ | Target HTTPS protocol; with `--scan-subnet` or `--submit-ips`, submits both HTTP and HTTPS variants for IPs |
 | `--http` | | _flag_ | Target HTTP protocol only |
 | `-r`, `--report` | `-📝` | _flag_ | Wait for scan completion and print formatted ASCII summary table |
 | `-R`, `--recursive` | `-🕸` | `<DEPTH>` | Recursion depth to follow and scan discovered linked domains (`-R 1`, `-R 2`) |
@@ -145,6 +145,13 @@ usage: urlscan-submit [-h] [-c FILE] [--country CC] [-d DOMAIN] [-D]
 | `-x`, `--explore` | `-🔍` | _flag_ | Enumerate **+20 common subdomains** (`admin`, `api`, `mail`, `dev`, etc.) |
 | `-xx`, `--deep-explore` | `-🤿` | _flag_ | Enumerate **+60 deep subdomains** (`auth`, `sso`, `git`, `k8s`, `vpn`, etc.) |
 | `-xxx`, `--massive-explore`| `-🌌` | _flag_ | Enumerate **+140 massive subdomains** (`cloud`, `db`, `grafana`, `vault`, etc.) |
+
+### Subnet scanning example
+
+```bash
+# Resolve target.com, then submit all 256 IPs in each resolved IPv4 /24 over HTTP and HTTPS:
+urlscan-submit -d target.com --scan-subnet --https
+```
 
 ---
 

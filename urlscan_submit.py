@@ -7,7 +7,8 @@ Core Architecture & Capabilities:
   1. Multi-Vector Target Generation:
      - Generates Cartesian matrices combining Protocols (HTTP/HTTPS), Subdomains
        (root/www), Common Infrastructure Subdomains (-x, -xx, -xxx, or custom wordlists),
-       and live DNS-resolved IPv4 addresses (-I).
+       live DNS-resolved IPv4 addresses (-I), and containing /24 or /120 subnets
+       (--scan-subnet).
   2. Intelligent Concurrency & Thread Pool Management:
      - Dispatches requests across worker threads (ThreadPoolExecutor) with a dynamic
        visual progress HUD (tqdm or built-in SimpleProgressBar fallback).
@@ -265,6 +266,13 @@ def resolve_domain_ips(hostname: str) -> List[str]:
         return [ip for ip in ip_list if ip]
     except (socket.gaierror, socket.herror, OSError):
         return []
+
+def get_subnet_addresses(ip_address: str) -> List[str]:
+    """Return all 256 addresses in the IP's containing /24 or /120 subnet."""
+    parsed_ip = ipaddress.ip_address(ip_address)
+    prefix_length = 24 if parsed_ip.version == 4 else 120
+    network = ipaddress.ip_network(f"{parsed_ip}/{prefix_length}", strict=False)
+    return [str(address) for address in network]
 
 # Well-known multi-part second-level domain suffixes (e.g. .co.uk, .gov.ru)
 MULTI_PART_TLDS: Set[str] = {
@@ -1028,6 +1036,9 @@ examples:
   urlscan-submit -🎯 target.com -🌐 both -🏢 both -🔍 -🔎
   (or: urlscan-submit -d target.com -p both -s both -x -I)
 
+  # 🗺️ Scan every address in each resolved IPv4 /24 subnet with HTTP and HTTPS:
+  urlscan-submit -d target.com --scan-subnet --https
+
   # 🚀 High-speed bulk submission from file using 10 concurrent threads:
   urlscan-submit -📁 domains.txt -🚀 10 -🔎
   (or: urlscan-submit -f domains.txt -w 10 -I)
@@ -1067,6 +1078,8 @@ configuration & api key priority:
                             help="📁 Path to line-delimited text file containing target domains or IP addresses")
     parser.add_argument("-I", "--resolve-ips", "--submit-ips", "--submit-domain-ips", "--domain-ips", "--ips", "--ip", "-🔎", action="store_true",
                         help="🔎 Resolve DNS A-records for domains/subdomains and submit their direct IP addresses (submits http://<ip>/; also submits https://<ip>/ if https parameter is provided)")
+    parser.add_argument("--scan-subnet", "--subnet-scan", action="store_true",
+                        help="🗺️ Resolve target IPs and submit all 256 addresses in each containing IPv4 /24 (IPv6 /120) subnet")
     parser.add_argument("-j", "--json-log", "-📜", metavar="FILE",
                         help="📜 Export full raw JSON API responses to file (forces report polling)")
     parser.add_argument("-k", "--api-key-file", "-🔑", metavar="FILE",
@@ -1076,7 +1089,7 @@ configuration & api key priority:
     parser.add_argument("-p", "--protocols", "-🌐", choices=["http", "https", "both"], default=None,
                         help="🌐 Protocols to generate in matrix: http, https, or both (default: https)")
     parser.add_argument("--https", action="store_true", default=None,
-                        help="🔒 Target HTTPS protocol (when submitting domain IPs, submits both HTTP and HTTPS variants)")
+                        help="🔒 Target HTTPS protocol (when submitting resolved or subnet IPs, submits both HTTP and HTTPS variants)")
     parser.add_argument("--http", action="store_true", default=None,
                         help="🔓 Target HTTP protocol only")
     parser.add_argument("-r", "--report", "-📝", action="store_true",
@@ -1122,6 +1135,12 @@ configuration & api key priority:
         or config.get("ips", False)
         or config.get("ip", False)
     )
+    args.scan_subnet = (
+        args.scan_subnet
+        or config.get("scan_subnet", False)
+        or config.get("subnet_scan", False)
+    )
+    args.resolve_ips = args.resolve_ips or args.scan_subnet
     args.subdomains = args.subdomains or config.get("subdomains") or "root"
     args.visibility = args.visibility or config.get("visibility") or "public"
     args.explore = args.explore or config.get("explore", False)
@@ -1306,6 +1325,8 @@ configuration & api key priority:
                     "parent_domain": None,
                     "is_resolved_ip": False
                 })
+            if args.scan_subnet:
+                resolved_ips[domain] = domain
         else:
             for prefix in prefixes:
                 fqdn = f"{prefix}{domain}"
@@ -1322,23 +1343,25 @@ configuration & api key priority:
                         resolved_ips[ip] = domain
 
     # Append resolved domain IPs with parent domain context
-    # When https parameter is provided (--https, -p https, -p both), submit both http:// and https:// variants;
+    # When HTTPS is requested (--https, -p https, -p both), submit both http:// and https:// variants;
     # otherwise submit only http:// variant.
     if args.resolve_ips and resolved_ips:
         print(f"[*] Resolved {len(resolved_ips)} unique IP address(es) from target subdomains.")
         ip_protocols = ["http://", "https://"] if https_provided else ["http://"]
         for ip, parent_dom in sorted(resolved_ips.items()):
-            try:
-                ip_obj = ipaddress.ip_address(ip)
-                formatted_ip = f"[{ip}]" if ip_obj.version == 6 else ip
-            except ValueError:
-                formatted_ip = ip
-            for proto in ip_protocols:
-                target_items.append({
-                    "url": f"{proto}{formatted_ip}/",
-                    "parent_domain": parent_dom,
-                    "is_resolved_ip": True
-                })
+            target_ips = get_subnet_addresses(ip) if args.scan_subnet else [ip]
+            for target_ip in target_ips:
+                try:
+                    ip_obj = ipaddress.ip_address(target_ip)
+                    formatted_ip = f"[{target_ip}]" if ip_obj.version == 6 else target_ip
+                except ValueError:
+                    formatted_ip = target_ip
+                for proto in ip_protocols:
+                    target_items.append({
+                        "url": f"{proto}{formatted_ip}/",
+                        "parent_domain": parent_dom,
+                        "is_resolved_ip": True
+                    })
 
     # Deduplicate while preserving order based on 'url'
     seen_urls = set()

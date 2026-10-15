@@ -3,3 +3,4 @@ visibility: private
 protocols: both
 subdomains: root
 explore: false
+scan_subnet: false
